@@ -45,7 +45,7 @@ rust-test:
   extends: .rust-default
   stage: test
   script:
-    - cargo test --all --verbose --offline
+    - cargo test --all --verbose
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'  # Run for all changes to a merge request's source branch
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH       # Run for all changes to the default branch
@@ -54,6 +54,6 @@ rust-build-release:
   extends: .rust-default
   stage: release
   script:
-    - cargo build --release --verbose --offline
+    - cargo build --release --verbose
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH      # Run for all changes to the default branch only
