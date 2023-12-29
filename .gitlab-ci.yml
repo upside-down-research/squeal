@@ -1,0 +1,59 @@
+
+image: rust:latest
+
+variables:
+  # Please edit to your GitLab project
+  REPO_NAME: gitlab.com/upside-down-research/oss/squeal
+
+
+stages:
+  - test
+  - release
+
+.rust-default:
+#  variables:
+#    CARGO_HOME: "${CI_PROJECT_DIR}/cargo"
+  cache:
+    key: shared-cache
+    paths:
+#      - cargo/
+      - target/
+
+### smoke test to validate the whole thing
+rust-integration:
+  extends: .rust-default
+  stage: test
+  script:
+    - echo "Running integration tests"
+    - "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly"
+    - cargo install junitify
+    - "cargo +nightly test -- --format=json -Z unstable-options --report-time | junitify --out test-results"
+  artifacts:
+      when: always
+      reports:
+        junit: test-results/*.xml
+  allow_failure: true
+# make this fire when the 'integration' label is set.
+  rules:
+    - if: $CI_MERGE_REQUEST_LABELS=="integration"
+      when: always
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: always
+
+#### the main CICD test.
+rust-test:
+  extends: .rust-default
+  stage: test
+  script:
+    - cargo test --all --verbose --offline
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'  # Run for all changes to a merge request's source branch
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH       # Run for all changes to the default branch
+
+rust-build-release:
+  extends: .rust-default
+  stage: release
+  script:
+    - cargo build --release --verbose --offline
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH      # Run for all changes to the default branch only
