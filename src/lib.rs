@@ -1,3 +1,7 @@
+
+trait Sql {
+    fn sql(&self) -> String;
+}
 pub enum Columns {
     Star,
     Selected(Vec<String>)
@@ -12,7 +16,11 @@ impl Select {
         Select {cols: c}
     }
 
-    pub fn sql(&self) -> String {
+
+}
+
+impl Sql for Select {
+    fn sql(&self) -> String {
         match &self.cols {
             Columns::Star => "SELECT *".to_string(),
             Columns::Selected(v) => format!("SELECT {}", v.join(", "))
@@ -20,23 +28,36 @@ impl Select {
     }
 }
 
-pub enum Condition  {
-    Op{left: String,
-       op: String,
-       right: String},
-    Leg{
+pub enum Op {
+    And,
+    Or, 
+    Equals,
+    O(String),
 }
-
+impl Sql for Op {
+    fn sql(&self) -> String {
+            match &self {
+                Op::And => "AND",
+                Op::Or => "OR", 
+                Op::Equals => "=",
+                Op::O(s) => s,
+            }.to_string()
+    }
+}
+pub enum Term {
+    Atom(String),     
+    Condition(Box<Term>, Op, Box<Term>),
+        
+}
+    
 pub enum Logical {
-    And(Condition, Box<Logical>),
-    Or(Condition, Box<Logical>),
-    Atom(Condition),
-    None
-}
+    Term,
+    Null
+}   
 
 impl Logical {
     fn new() -> Logical {
-        None
+       Logical::Null 
     }
 
     pub fn cond(&self, Condition) -> {
