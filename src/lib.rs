@@ -61,6 +61,7 @@ pub trait Sql {
 /// let result = Select::new(Columns::Selected(vec!["a", "b"])).sql();
 /// assert_eq!(result, "SELECT a, b");
 /// ```
+#[derive(Clone)]
 pub enum Columns<'a> {
     Star,
     Selected(Vec<&'a str>),
@@ -75,6 +76,7 @@ pub enum Columns<'a> {
 ///
 /// It does not currently support DISTINCT, functions, or other SELECT features besides simple
 /// projection.
+#[derive(Clone)]
 pub struct Select<'a> {
     pub cols: Columns<'a>,
 }
@@ -98,6 +100,7 @@ impl Sql for Select<'_> {
 /// It is used in the Term struct.
 ///
 /// The Op::O variant is an escape hatch to allow you to use any operator you want.
+#[derive(Clone)]
 pub enum Op<'a>  {
     And,
     Or,
@@ -165,6 +168,7 @@ impl<'a> Sql for Op<'a> {
 ///
 ///
 ///
+#[derive(Clone)]
 pub enum Term<'a> {
     /// An atom is a single identifier.
     Atom(&'a str),
@@ -191,6 +195,7 @@ impl<'a> Sql for Term<'a> {
 /// It is used in the Query struct.
 ///
 /// It is constructed with a Term, similar to a Where clause.
+#[derive(Clone)]
 pub struct Having<'a> {
     pub term: Term<'a>,
 }
@@ -211,6 +216,7 @@ impl<'a> Sql for Having<'a> {
 /// The OrderedColumn enum is used to specify the order by clause in a query.
 /// It is used in the OrderBy struct.
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
+#[derive(Clone)]
 pub enum OrderedColumn<'a> {
     Asc(&'a str),
     Desc(&'a str),
@@ -220,6 +226,7 @@ pub enum OrderedColumn<'a> {
 /// It is used in the Query struct.
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
 /// Each column can be ascending or descending
+#[derive(Clone)]
 pub struct OrderBy<'a> {
     pub columns: Vec<OrderedColumn<'a>>,
 }
@@ -247,6 +254,7 @@ impl<'a> Sql for OrderBy<'a> {
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
 ///
+#[derive(Clone)]
 pub struct Query<'a> {
     /// The select clause.
     pub select: Select<'a>,
@@ -259,6 +267,82 @@ pub struct Query<'a> {
     pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
+}
+
+/// The QueryBuilder struct is a fluent interface for building a Query.
+/// It is not intended to be used directly, but rather through the Q() function.
+/// See the integration_test.rs for an example of usage.
+pub struct QueryBuilder<'a> {
+    pub select: Select<'a>,
+    pub from: Option<&'a str>,
+    pub where_clause: Option<Term<'a>>,
+    pub group_by: Option<Vec<&'a str>>,
+    pub having: Option<Having<'a>>,
+    pub order_by: Option<OrderBy<'a>>,
+    pub limit: Option<u64>,
+    pub offset: Option<u64>,
+}
+
+/// The Q function is a fluent interface for building a Query.
+/// The user is expected to construct the Query object and then call the sql() method to get the SQL string.
+/// The goal is any valid construction of a QueryBuilder is a valid Query and will, at least, syntactically, be valid SQL.
+pub fn Q<'a>(from: &'a str) -> QueryBuilder<'a> {
+    QueryBuilder {
+        select: Select::new(Columns::Star),
+        from: Some(from),
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+    }
+}
+impl<'a> QueryBuilder<'a> {
+    pub fn build(&self) -> Query<'a> {
+        Query {
+            select: self.select.clone(),
+            from: self.from.unwrap(),
+            where_clause: self.where_clause.clone(),
+            group_by: self.group_by.clone(),
+            having: self.having.clone(),
+            order_by: self.order_by.clone(),
+            limit: self.limit.clone(),
+            offset: self.offset.clone(),
+        }
+    }
+    pub fn select(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
+        self.select = Select::new(Columns::Selected(cols));
+        self
+    }
+      pub fn from(&'a mut self, table: &'a str) -> &mut QueryBuilder {
+            self.from = Some(table);
+            self
+        }
+    pub fn where_(&'a mut self, term: Term<'a>) -> &mut QueryBuilder {
+        self.where_clause = Some(term);
+        self
+    }
+    pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
+        self.group_by = Some(cols);
+        self
+    }
+    pub fn having(&'a mut self, term: Term<'a>) -> &mut QueryBuilder {
+        self.having = Some(Having::new(term));
+        self
+    }
+    pub fn order_by(&'a mut self, cols: Vec<OrderedColumn<'a>>) -> &mut QueryBuilder {
+        self.order_by = Some(OrderBy { columns: cols });
+        self
+    }
+    pub fn limit(&'a mut self, limit: u64) -> &mut QueryBuilder {
+        self.limit = Some(limit);
+        self
+    }
+    pub fn offset(&'a mut self, offset: u64) -> &mut QueryBuilder {
+        self.offset = Some(offset);
+        self
+    }
 }
 
 impl<'a> Sql for Query<'a> {
