@@ -3,6 +3,8 @@ name = "squeal"
 # Squeal is pre-release
 version = "0.0.1"
 edition = "2021"
+description = "A SQL query builder library for Rust"
+license = "LGPL-3"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
