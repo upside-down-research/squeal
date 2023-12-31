@@ -14,4 +14,8 @@ A similar library for Go is https://github.com/leporo/sqlf.
 
 This code is not ready for use.
 
+Built against Rust 1.75.x.
+
+# license
+
 License: LGPL 3.0 or later.
