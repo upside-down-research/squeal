@@ -17,11 +17,11 @@
 //!
 //! let result = Query {
 //!      select: Select::new(Columns::Star),
-//!      from: "table".to_string(),
+//!      from: "table",
 //!      where_clause: Some(Term::Condition(
-//!        Box::new(Term::Atom("a".to_string())),
-//!      Op::O("<>".to_string()),
-//!      Box::new(Term::Atom("b".to_string())))),
+//!        Box::new(Term::Atom("a")),
+//!      Op::O("<>"),
+//!      Box::new(Term::Atom("b")))),
 //!      group_by: None,
 //!     having: None,
 //!     order_by: None,
@@ -58,12 +58,12 @@ pub trait Sql {
 /// Specific columns:
 /// ```
 /// use squeal::*;
-/// let result = Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])).sql();
+/// let result = Select::new(Columns::Selected(vec!["a", "b"])).sql();
 /// assert_eq!(result, "SELECT a, b");
 /// ```
-pub enum Columns {
+pub enum Columns<'a> {
     Star,
-    Selected(Vec<String>),
+    Selected(Vec<&'a str>),
 }
 
 /// The Select struct is used to specify which columns to select.
@@ -75,17 +75,17 @@ pub enum Columns {
 ///
 /// It does not currently support DISTINCT, functions, or other SELECT features besides simple
 /// projection.
-pub struct Select {
-    pub cols: Columns,
+pub struct Select<'a> {
+    pub cols: Columns<'a>,
 }
 
-impl Select {
+impl Select<'_> {
     pub fn new(c: Columns) -> Select {
         Select { cols: c }
     }
 }
 
-impl Sql for Select {
+impl Sql for Select<'_> {
     fn sql(&self) -> String {
         match &self.cols {
             Columns::Star => "SELECT *".to_string(),
@@ -98,14 +98,14 @@ impl Sql for Select {
 /// It is used in the Term struct.
 ///
 /// The Op::O variant is an escape hatch to allow you to use any operator you want.
-pub enum Op {
+pub enum Op<'a>  {
     And,
     Or,
     Equals,
-    O(String),
+    O(&'a str),
 }
 
-impl Sql for Op {
+impl<'a> Sql for Op<'a> {
     fn sql(&self) -> String {
         match &self {
             Op::And => "AND",
@@ -128,7 +128,7 @@ impl Sql for Op {
 /// Atom:
 /// ```
 /// use squeal::*;
-/// let result = Term::Atom("a".to_string()).sql();
+/// let result = Term::Atom("a").sql();
 /// assert_eq!(result, "a");
 /// ```
 ///
@@ -136,9 +136,9 @@ impl Sql for Op {
 /// ```
 /// use squeal::*;
 /// let result = Term::Condition(
-///    Box::new(Term::Atom("a".to_string())),
-///   Op::O("<>".to_string()),
-/// Box::new(Term::Atom("b".to_string())),
+///    Box::new(Term::Atom("a")),
+///   Op::O("<>"),
+/// Box::new(Term::Atom("b")),
 /// ).sql();
 /// assert_eq!(result, "a <> b");
 /// ```
@@ -147,36 +147,36 @@ impl Sql for Op {
 /// ```
 /// use squeal::*;
 /// let result = Term::Condition(
-///   Box::new(Term::Atom("a".to_string())),
+///   Box::new(Term::Atom("a")),
 /// Op::Equals,
 /// Box::new(Term::Condition(
-///   Box::new(Term::Atom("b".to_string())),
+///   Box::new(Term::Atom("b")),
 /// Op::And,
 /// Box::new(Term::Parens(Box::new(Term::Condition(
-///  Box::new(Term::Atom("c".to_string())),
+///  Box::new(Term::Atom("c")),
 /// Op::Equals,
 /// Box::new(Term::Condition(
-/// Box::new(Term::Atom("d".to_string())),
+/// Box::new(Term::Atom("d")),
 /// Op::Or,
-/// Box::new(Term::Atom("e".to_string())),
+/// Box::new(Term::Atom("e")),
 /// ))))))))).sql();
 /// assert_eq!(result, "a = b AND (c = d OR e)");
 /// ```
 ///
 ///
 ///
-pub enum Term {
+pub enum Term<'a> {
     /// An atom is a single identifier.
-    Atom(String),
+    Atom(&'a str),
     /// A condition is a combination of two terms and an operator.
-    Condition(Box<Term>, Op, Box<Term>),
+    Condition(Box<Term<'a>>, Op<'a>, Box<Term<'a>>),
     /// A parenthesized term.
-    Parens(Box<Term>),
+    Parens(Box<Term<'a>>),
     /// A null term.
     Null,
 }
 
-impl Sql for Term {
+impl<'a> Sql for Term<'a> {
     fn sql(&self) -> String {
         match &self {
             Term::Atom(s) => s.to_string(),
@@ -191,17 +191,17 @@ impl Sql for Term {
 /// It is used in the Query struct.
 ///
 /// It is constructed with a Term, similar to a Where clause.
-pub struct Having {
-    pub term: Term,
+pub struct Having<'a> {
+    pub term: Term<'a>,
 }
 
-impl Having {
-    pub fn new(t: Term) -> Having {
+impl<'a> Having<'a> {
+    pub fn new(t: Term<'a>) -> Having {
         Having { term: t }
     }
 }
 
-impl Sql for Having {
+impl<'a> Sql for Having<'a> {
     fn sql(&self) -> String {
         format!("{}", self.term.sql())
     }
@@ -211,20 +211,20 @@ impl Sql for Having {
 /// The OrderedColumn enum is used to specify the order by clause in a query.
 /// It is used in the OrderBy struct.
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
-pub enum OrderedColumn {
-    Asc(String),
-    Desc(String),
+pub enum OrderedColumn<'a> {
+    Asc(&'a str),
+    Desc(&'a str),
 }
 
 /// The OrderBy struct is used to specify the order by clause in a query.
 /// It is used in the Query struct.
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
 /// Each column can be ascending or descending
-pub struct OrderBy {
-    pub columns: Vec<OrderedColumn>,
+pub struct OrderBy<'a> {
+    pub columns: Vec<OrderedColumn<'a>>,
 }
 
-impl Sql for OrderBy {
+impl<'a> Sql for OrderBy<'a> {
     fn sql(&self) -> String {
         let mut result = "ORDER BY ".to_string();
         let mut first = true;
@@ -246,21 +246,22 @@ impl Sql for OrderBy {
 /// The Query struct is the top-level object that represents a query.
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
-pub struct Query {
+///
+pub struct Query<'a> {
     /// The select clause.
-    pub select: Select,
+    pub select: Select<'a>,
     /// The table name for the select clause.
-    pub from: String,
+    pub from: &'a str,
     /// The conditions for the where clause, if it exists.
-    pub where_clause: Option<Term>,
-    pub group_by: Option<Vec<String>>,
-    pub having: Option<Having>,
-    pub order_by: Option<OrderBy>,
+    pub where_clause: Option<Term<'a>>,
+    pub group_by: Option<Vec<&'a str>>,
+    pub having: Option<Having<'a>>,
+    pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
 }
 
-impl Sql for Query {
+impl<'a> Sql for Query<'a> {
     fn sql(&self) -> String {
         let mut result = self.select.sql();
         result.push_str(&format!(" FROM {}", self.from));
@@ -299,16 +300,14 @@ mod tests {
 
     #[test]
     fn select_cols() {
-        let result = Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])).sql();
+        let result = Select::new(Columns::Selected(vec!["a","b"])).sql();
         assert_eq!(result, "SELECT a, b");
     }
 
     #[test]
     fn select_cols2() {
         let result = Select::new(Columns::Selected(vec![
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
+            "a", "b","c",
         ]))
             .sql();
         assert_eq!(result, "SELECT a, b, c");
@@ -316,22 +315,22 @@ mod tests {
 
     #[test]
     fn op_o() {
-        let result = Op::O("<>".to_string()).sql();
+        let result = Op::O("<>").sql();
         assert_eq!(result, "<>");
     }
 
     #[test]
     fn term_atom() {
-        let result = Term::Atom("a".to_string()).sql();
+        let result = Term::Atom("a").sql();
         assert_eq!(result, "a");
     }
 
     #[test]
     fn term_condition() {
         let result = Term::Condition(
-            Box::new(Term::Atom("a".to_string())),
-            Op::O("<>".to_string()),
-            Box::new(Term::Atom("b".to_string())),
+            Box::new(Term::Atom("a")),
+            Op::O("<>"),
+            Box::new(Term::Atom("b")),
         )
             .sql();
         assert_eq!(result, "a <> b");
@@ -340,12 +339,12 @@ mod tests {
     #[test]
     fn term_condition2() {
         let result = Term::Condition(
-            Box::new(Term::Atom("a".to_string())),
-            Op::O("<>".to_string()),
+            Box::new(Term::Atom("a")),
+            Op::O("<>"),
             Box::new(Term::Condition(
-                Box::new(Term::Atom("b".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("c".to_string())),
+                Box::new(Term::Atom("b")),
+                Op::O("<>"),
+                Box::new(Term::Atom("c")),
             )),
         )
             .sql();
@@ -356,11 +355,11 @@ mod tests {
     fn query() {
         let result = Query {
             select: Select::new(Columns::Star),
-            from: "table".to_string(),
+            from: "table",
             where_clause: Some(Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("b".to_string())),
+                Box::new(Term::Atom("a")),
+                Op::O("<>"),
+                Box::new(Term::Atom("b")),
             )),
             group_by: None,
             having: None,
@@ -375,12 +374,12 @@ mod tests {
     #[test]
     fn query2() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["a", "b"])),
+            from: "table",
             where_clause: Some(Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("b".to_string())),
+                Box::new(Term::Atom("a")),
+                Op::O("<>"),
+                Box::new(Term::Atom("b")),
             )),
             group_by: None,
             having: None,
@@ -395,8 +394,8 @@ mod tests {
     #[test]
     fn query3() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["a", "b"])),
+            from: "table",
             where_clause: None,
             group_by: None,
             having: None,
@@ -412,21 +411,21 @@ mod tests {
     #[test]
     fn query4() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["a", "b"])),
+            from: "table",
             where_clause: Some(Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
+                Box::new(Term::Atom("a")),
                 Op::Equals,
                 Box::new(Term::Condition(
-                    Box::new(Term::Atom("b".to_string())),
+                    Box::new(Term::Atom("b")),
                     Op::And,
                     Box::new(Term::Parens(Box::new(Term::Condition(
-                        Box::new(Term::Atom("c".to_string())),
+                        Box::new(Term::Atom("c")),
                         Op::Equals,
                         Box::new(Term::Condition(
-                            Box::new(Term::Atom("d".to_string())),
+                            Box::new(Term::Atom("d")),
                             Op::Or,
-                            Box::new(Term::Atom("e".to_string())),
+                            Box::new(Term::Atom("e")),
                         )),
                     ))))),
                 )),
@@ -447,8 +446,8 @@ mod tests {
     #[test]
     fn limit_check() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["a", "b"])),
+            from: "table",
             where_clause: None,
             group_by: None,
             having: None,
@@ -463,8 +462,8 @@ mod tests {
     #[test]
     fn offset_check() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["a", "b"])),
+            from: "table",
             where_clause: None,
             group_by: None,
             having: None,
@@ -479,7 +478,7 @@ mod tests {
     #[test]
     fn order_by() {
         let result = OrderBy {
-            columns: vec![OrderedColumn::Asc("a".to_string())],
+            columns: vec![OrderedColumn::Asc("a")],
         }
             .sql();
         assert_eq!(result, "ORDER BY a ASC");
@@ -489,8 +488,8 @@ mod tests {
     fn order_by2() {
         let result = OrderBy {
             columns: vec![
-                OrderedColumn::Asc("a".to_string()),
-                OrderedColumn::Desc("b".to_string()),
+                OrderedColumn::Asc("a"),
+                OrderedColumn::Desc("b"),
             ],
         }
             .sql();
@@ -501,9 +500,9 @@ mod tests {
     fn test_having_simple() {
         let result = Having::new(
             Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("b".to_string())),
+                Box::new(Term::Atom("a")),
+                Op::O("<>"),
+                Box::new(Term::Atom("b")),
             )
         ).sql();
         assert_eq!(result, "a <> b");
@@ -514,15 +513,15 @@ mod tests {
     #[test]
     fn test_group_by_having() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["County".to_string(), "sum(paid)".to_string()])),
-            from: "table".to_string(),
+            select: Select::new(Columns::Selected(vec!["County", "sum(paid)"])),
+            from: "table",
             where_clause: None,
-            group_by: Some(vec!["County".to_string()]),
+            group_by: Some(vec!["County"]),
             having: Some(Having::new(
                 Term::Condition(
-                    Box::new(Term::Atom("sum(paid)".to_string())),
-                    Op::O(">".to_string()),
-                    Box::new(Term::Atom("10000".to_string())),
+                    Box::new(Term::Atom("sum(paid)")),
+                    Op::O(">"),
+                    Box::new(Term::Atom("10000")),
                 )
             )),
             order_by: None,

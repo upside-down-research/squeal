@@ -6,29 +6,30 @@ fn test_select() {
     assert_eq!(result, "SELECT *");
 }
 
-// Integration tests exercizing the complicated functionality of the squeal library for the Query object
+// Integration tests exercising the complicated functionality of the
+// squeal library for the Query object
 #[test]
 fn test_complicated_query_builder() {
     let result = Query {
-        select: Select::new(Columns::Selected(vec!["a".to_string(), "b".to_string()])),
-        from: "table".to_string(),
+        select: Select::new(Columns::Selected(vec!["a", "b",])),
+        from: "table",
         where_clause: Some(
             Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("b".to_string())),
+                Box::new(Term::Atom("a")),
+                Op::O("<>"),
+                Box::new(Term::Atom("b")),
             )
         ),
-        group_by: Some(vec!["a".to_string(), "b".to_string()]),
+        group_by: Some(vec!["a", "b"]),
         having: Some(Having::new(
             Term::Condition(
-                Box::new(Term::Atom("a".to_string())),
-                Op::O("<>".to_string()),
-                Box::new(Term::Atom("b".to_string())),
+                Box::new(Term::Atom("a")),
+                Op::O("<>"),
+                Box::new(Term::Atom("b")),
             )
         )),
-        order_by: Some(OrderBy{columns: vec![ OrderedColumn::Asc("a".to_string()),
-                                              OrderedColumn::Desc("b".to_string())]}),
+        order_by: Some(OrderBy{columns: vec![ OrderedColumn::Asc("a"),
+                                              OrderedColumn::Desc("b")]}),
         limit: Some(19),
         offset: Some(10),
     }.sql();
