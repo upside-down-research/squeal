@@ -190,6 +190,7 @@ impl Sql for Term {
 /// The Having struct is used to specify the having clause in a query.
 /// It is used in the Query struct.
 ///
+/// It is constructed with a Term, similar to a Where clause.
 pub struct Having {
     pub term: Term,
 }
@@ -207,6 +208,9 @@ impl Sql for Having {
 }
 
 
+/// The OrderedColumn enum is used to specify the order by clause in a query.
+/// It is used in the OrderBy struct.
+/// It is used to specify the columns, and optionally, whether they are ascending or descending.
 pub enum OrderedColumn {
     Asc(String),
     Desc(String),
