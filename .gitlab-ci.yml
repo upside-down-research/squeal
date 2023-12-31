@@ -50,6 +50,15 @@ rust-test:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'  # Run for all changes to a merge request's source branch
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH       # Run for all changes to the default branch
 
+pages:
+  stage: test
+  script:
+    - cargo doc --no-deps
+    - mv target/doc public
+    - echo '<meta http-equiv="refresh" content="0; url=squeal/index.html">' > public/index.html
+  artifacts:
+    paths:
+      - public
 rust-build-release:
   extends: .rust-default
   stage: release
