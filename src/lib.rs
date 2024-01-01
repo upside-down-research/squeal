@@ -16,8 +16,8 @@
 //! use squeal::*;
 //!
 //! let result = Query {
-//!      select: Select::new(Columns::Star),
-//!      from: "table",
+//!      select: Some(Select::new(Columns::Star)),
+//!      from: Some("table"),
 //!      where_clause: Some(Term::Condition(
 //!        Box::new(Term::Atom("a")),
 //!      Op::O("<>"),
@@ -31,15 +31,46 @@
 //!
 //! assert_eq!(result, "SELECT * FROM table WHERE a <> b");
 //! ```
-//! Note the verbosity of the to_string and Enum scoping. This is not intentional and an artifact of
+//! Note the verbosity of the Enum scoping. This is not intentional and an artifact of
 //! this still being in early development.
+//!
+//! Example using Q() fluent interface:
+//! ```
+//! use squeal::*;
+//! let mut qb = Q();
+//! let result = qb.select(vec!["a", "sum(b)"])
+//!   .from("the_table")
+//!  .where_(Term::Condition(
+//!    Box::new(Term::Atom("a")),
+//!   Op::O(">"),
+//!  Box::new(Term::Atom("10"))
+//! ))
+//! .group_by(vec!["b"])
+//! .having(Term::Condition(
+//!  Box::new(Term::Atom("a")),
+//! Op::O(">"),
+//! Box::new(Term::Atom("1000")),
+//! ))
+//! .limit(19)
+//! .offset(10);
+//! let q = result.build();
+//! assert_eq!(q.sql(), "SELECT a, sum(b) FROM the_table WHERE a > 10 GROUP BY b HAVING a > 1000 LIMIT 19 OFFSET 10");
+//!
+//!
 
 /// The Sql trait is implemented by all objects that can be used in a query.
 /// It provides a single method, sql(), that returns a String.
 ///
 /// This is not intended to be implemented by the user.
 pub trait Sql {
+    /// Returns the fragment which will be assembled in the given query.
     fn sql(&self) -> String;
+}
+
+/// The Build trait is used by the XBuilder structs to build the X struct.
+/// This is a means of providing a nice factory/fluent interface.
+pub trait Build {
+    fn build(&self) -> Self;
 }
 
 /// The Columns enum is used to specify which columns to select.
@@ -52,14 +83,14 @@ pub trait Sql {
 /// ```
 /// use squeal::*;
 /// let result = Select::new(Columns::Star).sql();
-/// assert_eq!(result, "SELECT *");
+/// assert_eq!(result, "*");
 /// ```
 ///
 /// Specific columns:
 /// ```
 /// use squeal::*;
 /// let result = Select::new(Columns::Selected(vec!["a", "b"])).sql();
-/// assert_eq!(result, "SELECT a, b");
+/// assert_eq!(result, "a, b");
 /// ```
 #[derive(Clone)]
 pub enum Columns<'a> {
@@ -81,17 +112,17 @@ pub struct Select<'a> {
     pub cols: Columns<'a>,
 }
 
-impl Select<'_> {
+impl<'a> Select<'a> {
     pub fn new(c: Columns) -> Select {
         Select { cols: c }
     }
 }
 
-impl Sql for Select<'_> {
+impl<'a> Sql for Select<'a> {
     fn sql(&self) -> String {
         match &self.cols {
-            Columns::Star => "SELECT *".to_string(),
-            Columns::Selected(v) => format!("SELECT {}", v.join(", ")),
+            Columns::Star => "*".to_string(),
+            Columns::Selected(v) => format!("{}", v.join(", ")),
         }
     }
 }
@@ -101,7 +132,7 @@ impl Sql for Select<'_> {
 ///
 /// The Op::O variant is an escape hatch to allow you to use any operator you want.
 #[derive(Clone)]
-pub enum Op<'a>  {
+pub enum Op<'a> {
     And,
     Or,
     Equals,
@@ -257,9 +288,9 @@ impl<'a> Sql for OrderBy<'a> {
 #[derive(Clone)]
 pub struct Query<'a> {
     /// The select clause.
-    pub select: Select<'a>,
+    pub select: Option<Select<'a>>,
     /// The table name for the select clause.
-    pub from: &'a str,
+    pub from: Option<&'a str>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
     pub group_by: Option<Vec<&'a str>>,
@@ -273,7 +304,7 @@ pub struct Query<'a> {
 /// It is not intended to be used directly, but rather through the Q() function.
 /// See the integration_test.rs for an example of usage.
 pub struct QueryBuilder<'a> {
-    pub select: Select<'a>,
+    pub select: Option<Select<'a>>,
     pub from: Option<&'a str>,
     pub where_clause: Option<Term<'a>>,
     pub group_by: Option<Vec<&'a str>>,
@@ -286,10 +317,10 @@ pub struct QueryBuilder<'a> {
 /// The Q function is a fluent interface for building a Query.
 /// The user is expected to construct the Query object and then call the sql() method to get the SQL string.
 /// The goal is any valid construction of a QueryBuilder is a valid Query and will, at least, syntactically, be valid SQL.
-pub fn Q<'a>(from: &'a str) -> QueryBuilder<'a> {
+pub fn Q<'a>() -> QueryBuilder<'a> {
     QueryBuilder {
-        select: Select::new(Columns::Star),
-        from: Some(from),
+        select: None,
+        from: None,
         where_clause: None,
         group_by: None,
         having: None,
@@ -298,11 +329,12 @@ pub fn Q<'a>(from: &'a str) -> QueryBuilder<'a> {
         offset: None,
     }
 }
+
 impl<'a> QueryBuilder<'a> {
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
-            from: self.from.unwrap(),
+            from: self.from.clone(),
             where_clause: self.where_clause.clone(),
             group_by: self.group_by.clone(),
             having: self.having.clone(),
@@ -312,13 +344,13 @@ impl<'a> QueryBuilder<'a> {
         }
     }
     pub fn select(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
-        self.select = Select::new(Columns::Selected(cols));
+        self.select = Some(Select::new(Columns::Selected(cols)));
         self
     }
-      pub fn from(&'a mut self, table: &'a str) -> &mut QueryBuilder {
-            self.from = Some(table);
-            self
-        }
+    pub fn from(&'a mut self, table: &'a str) -> &mut QueryBuilder {
+        self.from = Some(table);
+        self
+    }
     pub fn where_(&'a mut self, term: Term<'a>) -> &mut QueryBuilder {
         self.where_clause = Some(term);
         self
@@ -347,8 +379,14 @@ impl<'a> QueryBuilder<'a> {
 
 impl<'a> Sql for Query<'a> {
     fn sql(&self) -> String {
-        let mut result = self.select.sql();
-        result.push_str(&format!(" FROM {}", self.from));
+        let mut result = String::new();
+
+        if let Some(select) = &self.select {
+            result.push_str(&format!("SELECT {}", select.sql()));
+        }
+        if let Some(from) = &self.from {
+            result.push_str(&format!(" FROM {}", from));
+        }
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
         }
@@ -371,6 +409,207 @@ impl<'a> Sql for Query<'a> {
     }
 }
 
+/// CreateTable is used to specify a create table query.
+pub struct CreateTable<'a> {
+    pub table: &'a str,
+    /// The columns to insert. Note that they must be syntactically correct.
+    pub columns: Vec<String>,
+}
+
+impl<'a> Sql for CreateTable<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("CREATE TABLE {} (", self.table);
+        let mut first = true;
+        for c in &self.columns {
+            if !first {
+                result.push_str(", ");
+            }
+            first = false;
+            result.push_str(&format!("{}", c));
+        }
+        result.push_str(")");
+        result
+    }
+}
+
+pub struct DropTable<'a> {
+    pub table: &'a str,
+}
+
+impl<'a> Sql for DropTable<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("DROP TABLE {}", self.table);
+        result
+    }
+}
+/// The TableBuilder struct is a fluent interface for building a Table.
+/// Tables can be built into DROP or CREATE forms.
+pub struct TableBuilder {
+    pub table: String,
+    pub columns: Vec<Vec<String>>,
+}
+
+pub fn T(s: &str) -> TableBuilder {
+    TableBuilder {
+        table: s.to_string(),
+        columns: Vec::new(),
+    }
+}
+
+impl TableBuilder {
+    pub fn build_create_table(&self) -> CreateTable {
+        let mut table_cols = Vec::new();
+        for c in &self.columns {
+            table_cols.push(c.join(" "));
+        }
+        CreateTable {
+            table: &self.table,
+            columns: table_cols,
+        }
+    }
+    pub fn build_drop_table(&self) -> DropTable {
+        DropTable {
+            table: &self.table,
+        }
+    }
+    pub fn table(&mut self, table: String) -> &mut TableBuilder {
+        self.table = table.clone();
+        self
+    }
+    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder {
+        let mut col = vec![column, datatype];
+        col.extend(other);
+        let str_cols = col.iter().map(|s| s.to_string()).collect();
+        self.columns.push(str_cols);
+        self
+    }
+}
+
+
+/// The Insert struct is used to specify an insert query.
+/// The user is expect to construct the Insert object and then call the sql() method to
+/// get the SQL string.
+///
+#[derive(Clone)]
+pub struct Insert<'a> {
+    /// The table name for the insert clause.
+    pub table: &'a str,
+    /// The columns to insert.
+    pub columns: Vec<&'a str>,
+    /// The values to insert.
+    pub values: Vec<&'a str>,
+    pub returning: Option<Columns<'a>>,
+}
+
+impl<'a> Sql for Insert<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("INSERT INTO {} (", self.table);
+        let mut first = true;
+        for c in &self.columns {
+            if !first {
+                result.push_str(", ");
+            }
+            first = false;
+            result.push_str(&format!("{}", c));
+        }
+        result.push_str(") VALUES (");
+        let mut first = true;
+        for v in &self.values {
+            if !first {
+                result.push_str(", ");
+            }
+            first = false;
+            result.push_str(&format!("{}", v));
+        }
+        result.push_str(")");
+        result
+    }
+}
+
+pub struct InsertBuilder<'a> {
+    table: &'a str,
+    columns: Vec<&'a str >,
+    values: Vec<&'a str>,
+    returning: Option<Columns<'a>>,
+}
+
+pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
+    InsertBuilder {
+        table: &table.clone(),
+        columns: Vec::new(),
+        values: Vec::new(),
+        returning: None,
+    }
+}
+
+impl<'a> InsertBuilder<'a> {
+    pub fn build(&self) -> Insert {
+        Insert {
+            table: &self.table,
+            columns: self.columns.clone(),
+            values: self.values.clone(),
+            returning: self.returning.clone(),
+        }
+    }
+    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut InsertBuilder {
+        for c in columns {
+            self.columns.push(c.clone());
+        }
+        self
+    }
+    pub fn values(&'a mut self, values: Vec<&'a str>) -> &mut InsertBuilder {
+        for v in values {
+            self.values.push(v);
+        }
+        self
+    }
+    pub fn returning(&'a mut self, columns: Columns<'a>) -> &mut InsertBuilder {
+        self.returning = Some(columns);
+        self
+    }
+}
+
+
+/// The Update struct is used to specify an update query.
+/// The user is expect to construct the Update object and then call the sql() method to
+/// get the SQL string.
+///
+#[derive(Clone)]
+pub struct Update<'a> {
+    /// The table name for the update clause.
+    pub table: &'a str,
+    /// The columns to update.
+    pub columns: Vec<&'a str>,
+    /// The values to update.
+    pub values: Vec<&'a str>,
+    /// A table expression allowing columns from other tables to appear in the WHERE condition and
+    /// update expressions. -- pg 16 docs.
+    pub from: Option<&'a str>,
+    /// The conditions for the where clause, if it exists.
+    pub where_clause: Option<Term<'a>>,
+}
+
+impl<'a> Sql for Update<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("UPDATE {} SET ", self.table);
+        let mut first = true;
+        for (c, v) in self.columns.iter().zip(self.values.iter()) {
+            if !first {
+                result.push_str(", ");
+            }
+            first = false;
+            result.push_str(&format!("{} = {}", c, v));
+        }
+        if let Some(from) = &self.from {
+            result.push_str(&format!(" FROM {}", from));
+        }
+        if let Some(conditions) = &self.where_clause {
+            result.push_str(&format!(" WHERE {}", conditions.sql()));
+        }
+        result
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -379,22 +618,22 @@ mod tests {
     #[test]
     fn select_star() {
         let result = Select::new(Columns::Star).sql();
-        assert_eq!(result, "SELECT *");
+        assert_eq!(result, "*");
     }
 
     #[test]
     fn select_cols() {
-        let result = Select::new(Columns::Selected(vec!["a","b"])).sql();
-        assert_eq!(result, "SELECT a, b");
+        let result = Select::new(Columns::Selected(vec!["a", "b"])).sql();
+        assert_eq!(result, "a, b");
     }
 
     #[test]
     fn select_cols2() {
         let result = Select::new(Columns::Selected(vec![
-            "a", "b","c",
+            "a", "b", "c",
         ]))
             .sql();
-        assert_eq!(result, "SELECT a, b, c");
+        assert_eq!(result, "a, b, c");
     }
 
     #[test]
@@ -438,8 +677,8 @@ mod tests {
     #[test]
     fn query() {
         let result = Query {
-            select: Select::new(Columns::Star),
-            from: "table",
+            select: Some(Select::new(Columns::Star)),
+            from: Some("table"),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -458,8 +697,8 @@ mod tests {
     #[test]
     fn query2() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a", "b"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+            from: Some("table"),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -478,8 +717,8 @@ mod tests {
     #[test]
     fn query3() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a", "b"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+            from: Some("table"),
             where_clause: None,
             group_by: None,
             having: None,
@@ -495,8 +734,8 @@ mod tests {
     #[test]
     fn query4() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a", "b"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+            from: Some("table"),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::Equals,
@@ -530,8 +769,8 @@ mod tests {
     #[test]
     fn limit_check() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a", "b"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+            from: Some("table"),
             where_clause: None,
             group_by: None,
             having: None,
@@ -546,8 +785,8 @@ mod tests {
     #[test]
     fn offset_check() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["a", "b"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+            from: Some("table"),
             where_clause: None,
             group_by: None,
             having: None,
@@ -597,8 +836,8 @@ mod tests {
     #[test]
     fn test_group_by_having() {
         let result = Query {
-            select: Select::new(Columns::Selected(vec!["County", "sum(paid)"])),
-            from: "table",
+            select: Some(Select::new(Columns::Selected(vec!["County", "sum(paid)"]))),
+            from: Some("table"),
             where_clause: None,
             group_by: Some(vec!["County"]),
             having: Some(Having::new(
@@ -613,5 +852,52 @@ mod tests {
             offset: None,
         }.sql();
         assert_eq!(result, "SELECT County, sum(paid) FROM table GROUP BY County HAVING sum(paid) > 10000");
+    }
+
+    #[test]
+    fn test_create_table_simple() {
+        let result = CreateTable {
+            table: "table",
+            columns: vec!["a int".to_string(), "b int".to_string()],
+        }.sql();
+        assert_eq!(result, "CREATE TABLE table (a int, b int)");
+    }
+    #[test]
+    fn test_create_table_primary_keys_and_foreign_keys() {
+        let result = CreateTable {
+            table: "table",
+            columns: vec!["a int".to_string(), "b int".to_string(), "PRIMARY KEY (a)".to_string(), "FOREIGN KEY (b) REFERENCES table2 (b)".to_string()],
+        }.sql();
+        assert_eq!(result, "CREATE TABLE table (a int, b int, PRIMARY KEY (a), FOREIGN KEY (b) REFERENCES table2 (b))");
+    }
+
+    #[test]
+    fn test_drop_table_simple() {
+        let result = DropTable {
+            table: "table",
+        }.sql();
+        assert_eq!(result, "DROP TABLE table");
+    }
+
+    #[test]
+    fn test_create_table_fluent_interface() {
+        let result = T("table")
+            .column("a", "int", vec![])
+            .column("b", "int", vec![])
+            .build_create_table()
+            .sql();
+        assert_eq!(result, "CREATE TABLE table (a int, b int)");
+    }
+    #[test]
+    fn test_create_table_complicated_fluent() {
+        // this will test foreign keys, primary keys, and other constraints
+        let result = T("table")
+            .column("a", "int", vec![])
+            .column("b", "int", vec![])
+            .column("c", "int", vec!["PRIMARY KEY"])
+            .column("d", "int", vec!["FOREIGN KEY REFERENCES table2 (d)"])
+            .build_create_table()
+            .sql();
+        assert_eq!(result, "CREATE TABLE table (a int, b int, c int PRIMARY KEY, d int FOREIGN KEY REFERENCES table2 (d))");
     }
 }
