@@ -684,6 +684,25 @@ pub struct UpdateBuilder<'a> {
     returning: Option<Columns<'a>>,
 }
 
+/// Defines a fluent interface for building an Update.
+/// The user is expect to construct the Update object and then call the sql() method to
+/// get the SQL string.
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let mut u = U("table");
+/// let result = u
+///   .columns(vec!["a", "b"])
+///   .values(vec!["1", "2"])
+///   .where_(Term::Condition(
+///     Box::new(Term::Atom("a")),
+///     Op::Equals,
+///     Box::new(Term::Atom("b"))))
+///   .build();
+/// assert_eq!(result.sql(), "UPDATE table SET a = 1, b = 2 WHERE a = b");
+/// ```
+///
 #[allow(non_snake_case)]
 pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
     UpdateBuilder {
@@ -696,27 +715,27 @@ pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
     }
 }
 impl<'a> UpdateBuilder<'a> {
-    pub fn columns(&mut self, columns: Vec<&str>) -> &mut UpdateBuilder {
+    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut UpdateBuilder {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
-    pub fn values(&mut self, values: Vec<&str>) -> &mut UpdateBuilder {
+    pub fn values(&'a mut self, values: Vec<&'a str>) -> &mut UpdateBuilder {
         for v in values {
             self.values.push(v);
         }
         self
     }
-    pub fn from(&mut self, from: &str) -> &mut UpdateBuilder {
+    pub fn from(&'a mut self, from: &'a str) -> &mut UpdateBuilder {
         self.from = Some(from);
         self
     }
-    pub fn where_(&mut self, term: Term) -> &mut UpdateBuilder {
+    pub fn where_(&'a mut self, term: Term<'a>) -> &mut UpdateBuilder {
         self.where_clause = Some(term);
         self
     }
-    pub fn returning(&mut self, columns: Columns) -> &mut UpdateBuilder {
+    pub fn returning(&'a mut self, columns: Columns<'a>) -> &mut UpdateBuilder {
         self.returning = Some(columns);
         self
     }
@@ -752,6 +771,37 @@ impl<'a> Sql for Delete<'a> {
     }
 }
 
+/// The DeleteBuilder struct is a fluent interface for building a Delete.
+/// It is not intended to be used directly, but rather through the D() function.
+/// See the integration_test.rs for an example of usage.
+///
+pub struct DeleteBuilder<'a> {
+    table: &'a str,
+    where_clause: Option<Term<'a>>,
+}
+impl <'a> DeleteBuilder<'a> {
+    pub fn build(&self) -> Delete {
+        Delete {
+            table: &self.table,
+            where_clause: self.where_clause.clone(),
+        }
+    }
+    pub fn where_(&'a mut self, term: Term<'a>) -> &mut DeleteBuilder {
+        self.where_clause = Some(term);
+        self
+    }
+}
+
+/// Defines a fluent interface for building a Delete.
+/// The user is expect to construct the Delete object and then call the sql() method to
+/// get the SQL string.
+#[allow(non_snake_case)]
+pub fn D<'a>(table: &'a str) -> DeleteBuilder<'a> {
+    DeleteBuilder {
+        table: &table,
+        where_clause: None,
+    }
+}
 
 #[cfg(test)]
 mod tests {

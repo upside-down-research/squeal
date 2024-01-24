@@ -1,5 +1,10 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use testcontainers::RunnableImage;
 use testcontainers_modules::{postgres::Postgres, testcontainers::clients::Cli};
-use testcontainers::{RunnableImage};
+
 use squeal::*;
 
 #[test]
@@ -66,21 +71,36 @@ fn test_fluent_query() {
     assert_eq!(r.sql(), "SELECT a, sum(b) FROM the_table WHERE a <> b GROUP BY a HAVING a <> b ORDER BY a ASC LIMIT 19 OFFSET 10");
 }
 
-#[test] 
+#[test]
 fn test_fluent_update() {
-    let mut u = U("the_table");
-
-    let result = u.set(vec![("a", "b"), ("c", "d")])
+    let mut u = U("table_table");
+    let result = u
+        .columns(vec!["last_read", "last_write"])
+        .values(vec!["now()", "now()"])
         .where_(Term::Condition(
-            Box::new(Term::Atom("a")),
-            Op::O("<>"),
-            Box::new(Term::Atom("b")),
+            Box::new(Term::Atom("id")),
+            Op::Equals,
+            Box::new(Term::Atom("100")),
         ))
-        .returning(vec!["a", "b"]);
+        .build()
+        .sql();
 
-    let r = result.build();
-    assert_eq!(r.sql(), "UPDATE the_table SET a = b, c = d WHERE a <> b RETURNING a, b");
+    assert_eq!(result, "UPDATE table_table SET last_read = now(), last_write = now() WHERE id = 100");
+}
 
+#[test]
+fn test_fluent_delete() {
+    let mut d = D("table_table");
+    let result = d
+        .where_(Term::Condition(
+            Box::new(Term::Atom("id")),
+            Op::Equals,
+            Box::new(Term::Atom("100")),
+        ))
+        .build()
+        .sql();
+
+    assert_eq!(result, "DELETE FROM table_table WHERE id = 100");
 }
 
 
@@ -89,13 +109,10 @@ struct DockerTests {
 }
 
 impl DockerTests {
-    fn new() -> DockerTests{
+    fn new() -> DockerTests {
         let cli = Cli::default();
 
-        let result = DockerTests {
-            cli: cli,
-
-        };
+        let result = DockerTests { cli };
         result
     }
     fn get_new_node_and_connection(&mut self) -> (testcontainers::Container<Postgres>, postgres::Client) {
@@ -136,7 +153,7 @@ fn simple_query() -> Result<(), String> {
     let mut harness = DockerTests::new();
     let (node, mut conn) = harness.get_new_node_and_connection();
 
-    let result = Q().select( vec!["1 + 1"]).build().sql();
+    let result = Q().select(vec!["1 + 1"]).build().sql();
     let rows = conn.query(&result, &[]).unwrap();
     assert_eq!(rows.len(), 1);
 
@@ -170,10 +187,6 @@ fn create_and_drop_table() -> Result<(), String> {
     Ok(())
 }
 
-use std::hash::{Hash, Hasher};
-use std::collections::hash_map::DefaultHasher;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 fn generate_random_string(len: usize) -> String {
     let mut hasher = DefaultHasher::new();
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().hash(&mut hasher);
@@ -199,7 +212,7 @@ fn create_table_insert_data_query_it() -> Result<(), String> {
     let (_, mut conn) = harness.get_new_node_and_connection();
 
     // randomly generated tablename
-    let tablename = format!("test_table_{}",generate_random_string(8));
+    let tablename = format!("test_table_{}", generate_random_string(8));
 
     let result = T(&tablename)
         .column("id", "serial", vec![])
@@ -215,7 +228,7 @@ fn create_table_insert_data_query_it() -> Result<(), String> {
     let code = conn.execute(&result, &[]).unwrap();
     assert_eq!(code, 1);
 
-    let result = Q().select( vec!["name"]).from(&tablename).build().sql();
+    let result = Q().select(vec!["name"]).from(&tablename).build().sql();
     let rows = conn.query(&result, &[]).unwrap();
     assert_eq!(rows.len(), 1);
 
