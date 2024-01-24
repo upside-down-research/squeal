@@ -66,6 +66,24 @@ fn test_fluent_query() {
     assert_eq!(r.sql(), "SELECT a, sum(b) FROM the_table WHERE a <> b GROUP BY a HAVING a <> b ORDER BY a ASC LIMIT 19 OFFSET 10");
 }
 
+#[test] 
+fn test_fluent_update() {
+    let mut u = U("the_table");
+
+    let result = u.set(vec![("a", "b"), ("c", "d")])
+        .where_(Term::Condition(
+            Box::new(Term::Atom("a")),
+            Op::O("<>"),
+            Box::new(Term::Atom("b")),
+        ))
+        .returning(vec!["a", "b"]);
+
+    let r = result.build();
+    assert_eq!(r.sql(), "UPDATE the_table SET a = b, c = d WHERE a <> b RETURNING a, b");
+
+}
+
+
 struct DockerTests {
     cli: testcontainers::clients::Cli,
 }

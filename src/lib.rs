@@ -644,6 +644,8 @@ pub struct Update<'a> {
     pub from: Option<&'a str>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
+    /// The columns to return, if any
+    pub returning: Option<Columns<'a>>,
 }
 
 impl<'a> Sql for Update<'a> {
@@ -663,9 +665,74 @@ impl<'a> Sql for Update<'a> {
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
         }
+        if let Some(returning) = &self.returning {
+            result.push_str(&format!(" RETURNING {}", returning.sql()));
+        }
         result
     }
 }
+
+/// The UpdateBuilder struct is a fluent interface for building an Update.
+/// It is not intended to be used directly, but rather through the U() function.
+/// See the integration_test.rs for an example of usage.
+pub struct UpdateBuilder<'a> {
+    table: &'a str,
+    columns: Vec<&'a str >,
+    values: Vec<&'a str>,
+    from: Option<&'a str>,
+    where_clause: Option<Term<'a>>,
+    returning: Option<Columns<'a>>,
+}
+
+#[allow(non_snake_case)]
+pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
+    UpdateBuilder {
+        table: &table,
+        columns: Vec::new(),
+        values: Vec::new(),
+        from: None,
+        where_clause: None,
+        returning: None,
+    }
+}
+impl<'a> UpdateBuilder<'a> {
+    pub fn columns(&mut self, columns: Vec<&str>) -> &mut UpdateBuilder {
+        for c in columns {
+            self.columns.push(c);
+        }
+        self
+    }
+    pub fn values(&mut self, values: Vec<&str>) -> &mut UpdateBuilder {
+        for v in values {
+            self.values.push(v);
+        }
+        self
+    }
+    pub fn from(&mut self, from: &str) -> &mut UpdateBuilder {
+        self.from = Some(from);
+        self
+    }
+    pub fn where_(&mut self, term: Term) -> &mut UpdateBuilder {
+        self.where_clause = Some(term);
+        self
+    }
+    pub fn returning(&mut self, columns: Columns) -> &mut UpdateBuilder {
+        self.returning = Some(columns);
+        self
+    }
+    pub fn build(&self) -> Update {
+        Update {
+            table: &self.table,
+            columns: self.columns.clone(),
+            values: self.values.clone(),
+            from: self.from.clone(),
+            where_clause: self.where_clause.clone(),
+            returning: self.returning.clone(),
+        }
+    }
+
+}
+
 
 #[derive(Clone)]
 pub struct Delete<'a> {
