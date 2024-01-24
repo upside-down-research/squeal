@@ -41,19 +41,17 @@
 //! let mut qb = Q();
 //! let result = qb.select(vec!["a", "sum(b)"])
 //!   .from("the_table")
-//!  .where_(Term::Condition(
-//!    Box::new(Term::Atom("a")),
-//!   Op::O(">"),
-//!  Box::new(Term::Atom("10"))
-//! ))
-//! .group_by(vec!["b"])
-//! .having(Term::Condition(
-//!  Box::new(Term::Atom("a")),
-//! Op::O(">"),
-//! Box::new(Term::Atom("1000")),
-//! ))
-//! .limit(19)
-//! .offset(10);
+//!   .where_(Term::Condition(
+//!      Box::new(Term::Atom("a")),
+//!      Op::O(">"),
+//!      Box::new(Term::Atom("10"))))
+//!   .group_by(vec!["b"])
+//!   .having(Term::Condition(
+//!      Box::new(Term::Atom("a")),
+//!      Op::O(">"),
+//!      Box::new(Term::Atom("1000"))))
+//!   .limit(19)
+//!   .offset(10);
 //! let q = result.build();
 //! assert_eq!(q.sql(), "SELECT a, sum(b) FROM the_table WHERE a > 10 GROUP BY b HAVING a > 1000 LIMIT 19 OFFSET 10");
 //!
@@ -100,6 +98,15 @@ pub enum Columns<'a> {
     Selected(Vec<&'a str>),
 }
 
+impl<'a> Sql for Columns<'a> {
+    fn sql(&self) -> String {
+        match &self {
+            Columns::Star => "*".to_string(),
+            Columns::Selected(v) => format!("{}", v.join(", ")),
+        }
+    }
+}
+
 /// The Select struct is used to specify which columns to select.
 /// It is used in the Query struct.
 ///
@@ -122,10 +129,7 @@ impl<'a> Select<'a> {
 
 impl<'a> Sql for Select<'a> {
     fn sql(&self) -> String {
-        match &self.cols {
-            Columns::Star => "*".to_string(),
-            Columns::Selected(v) => format!("{}", v.join(", ")),
-        }
+        self.cols.sql()
     }
 }
 
@@ -300,7 +304,7 @@ pub struct Query<'a> {
     pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
-    pub for_update: bool
+    pub for_update: bool,
 }
 
 /// The QueryBuilder struct is a fluent interface for building a Query.
@@ -315,7 +319,7 @@ pub struct QueryBuilder<'a> {
     pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
-    pub for_update: bool
+    pub for_update: bool,
 }
 
 /// The Q function is a fluent interface for building a Query.
@@ -332,7 +336,7 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
         order_by: None,
         limit: None,
         offset: None,
-        for_update: false
+        for_update: false,
     }
 }
 
@@ -347,8 +351,7 @@ impl<'a> QueryBuilder<'a> {
             order_by: self.order_by.clone(),
             limit: self.limit.clone(),
             offset: self.offset.clone(),
-            for_update: self.for_update.clone()
-
+            for_update: self.for_update.clone(),
         }
     }
     pub fn select(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
@@ -447,6 +450,7 @@ impl<'a> Sql for CreateTable<'a> {
     }
 }
 
+/// DropTable is used to specify a drop table query.
 pub struct DropTable<'a> {
     pub table: &'a str,
 }
@@ -457,6 +461,7 @@ impl<'a> Sql for DropTable<'a> {
         result
     }
 }
+
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
 pub struct TableBuilder {
@@ -464,6 +469,7 @@ pub struct TableBuilder {
     pub columns: Vec<Vec<String>>,
 }
 
+/// Defines a fluent interface for building a Table.
 #[allow(non_snake_case)]
 pub fn T(s: &str) -> TableBuilder {
     TableBuilder {
@@ -506,6 +512,20 @@ impl TableBuilder {
 /// The user is expect to construct the Insert object and then call the sql() method to
 /// get the SQL string.
 ///
+///  # Examples
+/// ```
+/// use squeal::*;
+/// let result = Insert {
+///    table: "table",
+///    columns: vec!["a", "b"],
+///    values: vec!["1", "2"],
+///    returning: None,
+/// }.sql();
+/// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
+/// ```
+/// Note that the values are not escaped, so you must do that yourself.
+/// If using a prepared statement, you will have to specify the Placeholder and pass in the values to
+/// the execution call at the callsite rather than the preparation site.
 #[derive(Clone)]
 pub struct Insert<'a> {
     /// The table name for the insert clause.
@@ -538,17 +558,37 @@ impl<'a> Sql for Insert<'a> {
             result.push_str(&format!("{}", v));
         }
         result.push_str(")");
+
+        if self.returning.is_some() {
+            result.push_str(&format!(" RETURNING {}", self.returning.as_ref().unwrap().sql()));
+        }
+
         result
     }
 }
 
 pub struct InsertBuilder<'a> {
     table: &'a str,
-    columns: Vec<&'a str >,
+    columns: Vec<&'a str>,
     values: Vec<&'a str>,
     returning: Option<Columns<'a>>,
 }
 
+/// Defines a fluent interface for building an Insert.
+/// The user is expect to construct the Insert object and then call the sql() method to
+/// get the SQL string.
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let result = I("table")
+///    .columns(vec!["a", "b"])
+///    .values(vec!["1", "2"])
+///    .build()
+///    .sql();
+/// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
+/// ```
+///
 #[allow(non_snake_case)]
 pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
     InsertBuilder {
@@ -745,7 +785,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
-            for_update: false
+            for_update: false,
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table WHERE a <> b");
@@ -762,7 +802,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
-            for_update: false
+            for_update: false,
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table");
@@ -796,7 +836,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
-            for_update: false
+            for_update: false,
         }
             .sql();
         assert_eq!(
@@ -816,7 +856,7 @@ mod tests {
             order_by: None,
             limit: Some(19),
             offset: None,
-            for_update: false
+            for_update: false,
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table LIMIT 19");
@@ -833,7 +873,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: Some(10),
-            for_update: false
+            for_update: false,
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table OFFSET 10");
@@ -891,7 +931,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
-            for_update: false
+            for_update: false,
         }.sql();
         assert_eq!(result, "SELECT County, sum(paid) FROM table GROUP BY County HAVING sum(paid) > 10000");
     }
@@ -904,6 +944,7 @@ mod tests {
         }.sql();
         assert_eq!(result, "CREATE TABLE table (a int, b int)");
     }
+
     #[test]
     fn test_create_table_primary_keys_and_foreign_keys() {
         let result = CreateTable {
@@ -930,6 +971,7 @@ mod tests {
             .sql();
         assert_eq!(result, "CREATE TABLE table (a int, b int)");
     }
+
     #[test]
     fn test_create_table_complicated_fluent() {
         // this will test foreign keys, primary keys, and other constraints
@@ -941,5 +983,37 @@ mod tests {
             .build_create_table()
             .sql();
         assert_eq!(result, "CREATE TABLE table (a int, b int, c int PRIMARY KEY, d int FOREIGN KEY REFERENCES table2 (d))");
+    }
+
+    #[test]
+    fn test_insert_simple() {
+        let result = Insert {
+            table: "table",
+            columns: vec!["a", "b"],
+            values: vec!["1", "2"],
+            returning: None,
+        }.sql();
+        assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
+    }
+
+    #[test]
+    fn test_insert_i_fluent() {
+        let result = I("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .build()
+            .sql();
+        assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
+    }
+
+    #[test]
+    fn test_insert_with_returning_and_complicated() {
+        let result = I("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .returning(Columns::Selected(vec!["a", "b"]))
+            .build()
+            .sql();
+        assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2) RETURNING a, b");
     }
 }
