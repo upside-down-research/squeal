@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use testcontainers_modules::{postgres::Postgres, testcontainers::clients::Cli};
 use testcontainers::{RunnableImage};
 use squeal::*;
@@ -37,8 +36,9 @@ fn test_complicated_query_builder() {
         }),
         limit: Some(19),
         offset: Some(10),
+        for_update: true,
     }.sql();
-    assert_eq!(result, "SELECT a, b FROM table WHERE a <> b GROUP BY a, b HAVING a <> b ORDER BY a ASC, b DESC LIMIT 19 OFFSET 10");
+    assert_eq!(result, "SELECT a, b FROM table WHERE a <> b GROUP BY a, b HAVING a <> b ORDER BY a ASC, b DESC LIMIT 19 OFFSET 10 FOR UPDATE");
 }
 
 #[test]
@@ -74,7 +74,7 @@ impl DockerTests {
     fn new() -> DockerTests{
         let cli = Cli::default();
 
-        let mut result = DockerTests {
+        let result = DockerTests {
             cli: cli,
 
         };
@@ -145,7 +145,7 @@ fn create_and_drop_table() -> Result<(), String> {
 
 
     let result = T("test_table").build_drop_table().sql();
-    let code = conn.execute(&result, &[]).unwrap();;
+    let code = conn.execute(&result, &[]).unwrap();
     assert_eq!(code, 0);
 
     println!("{}", node.id());
@@ -163,7 +163,7 @@ fn generate_random_string(len: usize) -> String {
 
     let characters: Vec<char> = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".chars().collect();
     let mut random_string = String::new();
-    let string_length = 10; // Desired length of the string
+    let string_length = len;
 
     for _ in 0..string_length {
         let num = hash as usize;
@@ -178,7 +178,7 @@ fn generate_random_string(len: usize) -> String {
 #[cfg_attr(not(feature = "postgres-docker"), ignore)]
 fn create_table_insert_data_query_it() -> Result<(), String> {
     let mut harness = DockerTests::new();
-    let (node, mut conn) = harness.get_new_node_and_connection();
+    let (_, mut conn) = harness.get_new_node_and_connection();
 
     // randomly generated tablename
     let tablename = format!("test_table_{}",generate_random_string(8));
@@ -207,7 +207,7 @@ fn create_table_insert_data_query_it() -> Result<(), String> {
     }
 
     let result = T(&tablename).build_drop_table().sql();
-    let code = conn.execute(&result, &[]).unwrap();;
+    let code = conn.execute(&result, &[]).unwrap();
     assert_eq!(code, 0);
 
     Ok(())

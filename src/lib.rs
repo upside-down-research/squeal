@@ -27,6 +27,7 @@
 //!     order_by: None,
 //!     limit: None,
 //!     offset: None,
+//!     for_update: false,
 //! }.sql();
 //!
 //! assert_eq!(result, "SELECT * FROM table WHERE a <> b");
@@ -57,6 +58,7 @@
 //! assert_eq!(q.sql(), "SELECT a, sum(b) FROM the_table WHERE a > 10 GROUP BY b HAVING a > 1000 LIMIT 19 OFFSET 10");
 //!
 //!
+
 
 /// The Sql trait is implemented by all objects that can be used in a query.
 /// It provides a single method, sql(), that returns a String.
@@ -298,6 +300,7 @@ pub struct Query<'a> {
     pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
+    pub for_update: bool
 }
 
 /// The QueryBuilder struct is a fluent interface for building a Query.
@@ -312,11 +315,13 @@ pub struct QueryBuilder<'a> {
     pub order_by: Option<OrderBy<'a>>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
+    pub for_update: bool
 }
 
 /// The Q function is a fluent interface for building a Query.
 /// The user is expected to construct the Query object and then call the sql() method to get the SQL string.
 /// The goal is any valid construction of a QueryBuilder is a valid Query and will, at least, syntactically, be valid SQL.
+#[allow(non_snake_case)]
 pub fn Q<'a>() -> QueryBuilder<'a> {
     QueryBuilder {
         select: None,
@@ -327,6 +332,7 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
         order_by: None,
         limit: None,
         offset: None,
+        for_update: false
     }
 }
 
@@ -341,6 +347,8 @@ impl<'a> QueryBuilder<'a> {
             order_by: self.order_by.clone(),
             limit: self.limit.clone(),
             offset: self.offset.clone(),
+            for_update: self.for_update.clone()
+
         }
     }
     pub fn select(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
@@ -375,6 +383,10 @@ impl<'a> QueryBuilder<'a> {
         self.offset = Some(offset);
         self
     }
+    pub fn for_update(&'a mut self) -> &mut QueryBuilder {
+        self.for_update = true;
+        self
+    }
 }
 
 impl<'a> Sql for Query<'a> {
@@ -404,6 +416,9 @@ impl<'a> Sql for Query<'a> {
         }
         if let Some(offset) = &self.offset {
             result.push_str(&format!(" OFFSET {}", offset));
+        }
+        if self.for_update {
+            result.push_str(" FOR UPDATE");
         }
         result
     }
@@ -438,7 +453,7 @@ pub struct DropTable<'a> {
 
 impl<'a> Sql for DropTable<'a> {
     fn sql(&self) -> String {
-        let mut result = format!("DROP TABLE {}", self.table);
+        let result = format!("DROP TABLE {}", self.table);
         result
     }
 }
@@ -449,6 +464,7 @@ pub struct TableBuilder {
     pub columns: Vec<Vec<String>>,
 }
 
+#[allow(non_snake_case)]
 pub fn T(s: &str) -> TableBuilder {
     TableBuilder {
         table: s.to_string(),
@@ -533,9 +549,10 @@ pub struct InsertBuilder<'a> {
     returning: Option<Columns<'a>>,
 }
 
+#[allow(non_snake_case)]
 pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
     InsertBuilder {
-        table: &table.clone(),
+        table: &table,
         columns: Vec::new(),
         values: Vec::new(),
         returning: None,
@@ -553,7 +570,7 @@ impl<'a> InsertBuilder<'a> {
     }
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut InsertBuilder {
         for c in columns {
-            self.columns.push(c.clone());
+            self.columns.push(c);
         }
         self
     }
@@ -603,6 +620,24 @@ impl<'a> Sql for Update<'a> {
         if let Some(from) = &self.from {
             result.push_str(&format!(" FROM {}", from));
         }
+        if let Some(conditions) = &self.where_clause {
+            result.push_str(&format!(" WHERE {}", conditions.sql()));
+        }
+        result
+    }
+}
+
+#[derive(Clone)]
+pub struct Delete<'a> {
+    /// The table name for the delete clause.
+    pub table: &'a str,
+    /// The conditions for the where clause, if it exists.
+    pub where_clause: Option<Term<'a>>,
+}
+
+impl<'a> Sql for Delete<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("DELETE FROM {}", self.table);
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
         }
@@ -689,6 +724,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
+            for_update: false,
         }
             .sql();
         assert_eq!(result, "SELECT * FROM table WHERE a <> b");
@@ -709,6 +745,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
+            for_update: false
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table WHERE a <> b");
@@ -725,6 +762,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
+            for_update: false
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table");
@@ -758,6 +796,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
+            for_update: false
         }
             .sql();
         assert_eq!(
@@ -777,6 +816,7 @@ mod tests {
             order_by: None,
             limit: Some(19),
             offset: None,
+            for_update: false
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table LIMIT 19");
@@ -793,6 +833,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: Some(10),
+            for_update: false
         }
             .sql();
         assert_eq!(result, "SELECT a, b FROM table OFFSET 10");
@@ -850,6 +891,7 @@ mod tests {
             order_by: None,
             limit: None,
             offset: None,
+            for_update: false
         }.sql();
         assert_eq!(result, "SELECT County, sum(paid) FROM table GROUP BY County HAVING sum(paid) > 10000");
     }
