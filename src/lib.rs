@@ -644,6 +644,8 @@ pub struct Update<'a> {
     pub from: Option<&'a str>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
+    /// The columns to return, if any
+    pub returning: Option<Columns<'a>>,
 }
 
 impl<'a> Sql for Update<'a> {
@@ -663,9 +665,93 @@ impl<'a> Sql for Update<'a> {
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
         }
+        if let Some(returning) = &self.returning {
+            result.push_str(&format!(" RETURNING {}", returning.sql()));
+        }
         result
     }
 }
+
+/// The UpdateBuilder struct is a fluent interface for building an Update.
+/// It is not intended to be used directly, but rather through the U() function.
+/// See the integration_test.rs for an example of usage.
+pub struct UpdateBuilder<'a> {
+    table: &'a str,
+    columns: Vec<&'a str >,
+    values: Vec<&'a str>,
+    from: Option<&'a str>,
+    where_clause: Option<Term<'a>>,
+    returning: Option<Columns<'a>>,
+}
+
+/// Defines a fluent interface for building an Update.
+/// The user is expect to construct the Update object and then call the sql() method to
+/// get the SQL string.
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let mut u = U("table");
+/// let result = u
+///   .columns(vec!["a", "b"])
+///   .values(vec!["1", "2"])
+///   .where_(Term::Condition(
+///     Box::new(Term::Atom("a")),
+///     Op::Equals,
+///     Box::new(Term::Atom("b"))))
+///   .build();
+/// assert_eq!(result.sql(), "UPDATE table SET a = 1, b = 2 WHERE a = b");
+/// ```
+///
+#[allow(non_snake_case)]
+pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
+    UpdateBuilder {
+        table: &table,
+        columns: Vec::new(),
+        values: Vec::new(),
+        from: None,
+        where_clause: None,
+        returning: None,
+    }
+}
+impl<'a> UpdateBuilder<'a> {
+    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut UpdateBuilder {
+        for c in columns {
+            self.columns.push(c);
+        }
+        self
+    }
+    pub fn values(&'a mut self, values: Vec<&'a str>) -> &mut UpdateBuilder {
+        for v in values {
+            self.values.push(v);
+        }
+        self
+    }
+    pub fn from(&'a mut self, from: &'a str) -> &mut UpdateBuilder {
+        self.from = Some(from);
+        self
+    }
+    pub fn where_(&'a mut self, term: Term<'a>) -> &mut UpdateBuilder {
+        self.where_clause = Some(term);
+        self
+    }
+    pub fn returning(&'a mut self, columns: Columns<'a>) -> &mut UpdateBuilder {
+        self.returning = Some(columns);
+        self
+    }
+    pub fn build(&self) -> Update {
+        Update {
+            table: &self.table,
+            columns: self.columns.clone(),
+            values: self.values.clone(),
+            from: self.from.clone(),
+            where_clause: self.where_clause.clone(),
+            returning: self.returning.clone(),
+        }
+    }
+
+}
+
 
 #[derive(Clone)]
 pub struct Delete<'a> {
@@ -685,6 +771,37 @@ impl<'a> Sql for Delete<'a> {
     }
 }
 
+/// The DeleteBuilder struct is a fluent interface for building a Delete.
+/// It is not intended to be used directly, but rather through the D() function.
+/// See the integration_test.rs for an example of usage.
+///
+pub struct DeleteBuilder<'a> {
+    table: &'a str,
+    where_clause: Option<Term<'a>>,
+}
+impl <'a> DeleteBuilder<'a> {
+    pub fn build(&self) -> Delete {
+        Delete {
+            table: &self.table,
+            where_clause: self.where_clause.clone(),
+        }
+    }
+    pub fn where_(&'a mut self, term: Term<'a>) -> &mut DeleteBuilder {
+        self.where_clause = Some(term);
+        self
+    }
+}
+
+/// Defines a fluent interface for building a Delete.
+/// The user is expect to construct the Delete object and then call the sql() method to
+/// get the SQL string.
+#[allow(non_snake_case)]
+pub fn D<'a>(table: &'a str) -> DeleteBuilder<'a> {
+    DeleteBuilder {
+        table: &table,
+        where_clause: None,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1015,5 +1132,82 @@ mod tests {
             .build()
             .sql();
         assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2) RETURNING a, b");
+    }
+    #[test]
+    fn test_delete_simple() {
+        let result = D("table")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Atom("b")),
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM table WHERE a = b");
+    }
+    #[test]
+    fn test_delete_complex() {
+        let result = D("table")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Condition(
+                    Box::new(Term::Atom("b")),
+                    Op::And,
+                    Box::new(Term::Parens(Box::new(Term::Condition(
+                        Box::new(Term::Atom("c")),
+                        Op::Equals,
+                        Box::new(Term::Condition(
+                            Box::new(Term::Atom("d")),
+                            Op::Or,
+                            Box::new(Term::Atom("e")),
+                        )),
+                    ))))),
+                )))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM table WHERE a = b AND (c = d OR e)");
+    }
+
+    #[test]
+    fn test_update_simple() {
+        let result = U("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Atom("b")),
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE table SET a = 1, b = 2 WHERE a = b");
+    }
+    #[test]
+    fn test_update_complex() {
+        let result = U("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .from("table2")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Condition(
+                    Box::new(Term::Atom("b")),
+                    Op::And,
+                    Box::new(Term::Parens(Box::new(Term::Condition(
+                        Box::new(Term::Atom("c")),
+                        Op::Equals,
+                        Box::new(Term::Condition(
+                            Box::new(Term::Atom("d")),
+                            Op::Or,
+                            Box::new(Term::Atom("e")),
+                        )),
+                    ))))),
+                )))
+            .returning(Columns::Selected(vec!["a", "b"]))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE table SET a = 1, b = 2 FROM table2 WHERE a = b AND (c = d OR e) RETURNING a, b");
     }
 }
