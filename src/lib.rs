@@ -1133,4 +1133,81 @@ mod tests {
             .sql();
         assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2) RETURNING a, b");
     }
+    #[test]
+    fn test_delete_simple() {
+        let result = D("table")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Atom("b")),
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM table WHERE a = b");
+    }
+    #[test]
+    fn test_delete_complex() {
+        let result = D("table")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Condition(
+                    Box::new(Term::Atom("b")),
+                    Op::And,
+                    Box::new(Term::Parens(Box::new(Term::Condition(
+                        Box::new(Term::Atom("c")),
+                        Op::Equals,
+                        Box::new(Term::Condition(
+                            Box::new(Term::Atom("d")),
+                            Op::Or,
+                            Box::new(Term::Atom("e")),
+                        )),
+                    ))))),
+                )))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM table WHERE a = b AND (c = d OR e)");
+    }
+
+    #[test]
+    fn test_update_simple() {
+        let result = U("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Atom("b")),
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE table SET a = 1, b = 2 WHERE a = b");
+    }
+    #[test]
+    fn test_update_complex() {
+        let result = U("table")
+            .columns(vec!["a", "b"])
+            .values(vec!["1", "2"])
+            .from("table2")
+            .where_(Term::Condition(
+                Box::new(Term::Atom("a")),
+                Op::Equals,
+                Box::new(Term::Condition(
+                    Box::new(Term::Atom("b")),
+                    Op::And,
+                    Box::new(Term::Parens(Box::new(Term::Condition(
+                        Box::new(Term::Atom("c")),
+                        Op::Equals,
+                        Box::new(Term::Condition(
+                            Box::new(Term::Atom("d")),
+                            Op::Or,
+                            Box::new(Term::Atom("e")),
+                        )),
+                    ))))),
+                )))
+            .returning(Columns::Selected(vec!["a", "b"]))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE table SET a = 1, b = 2 FROM table2 WHERE a = b AND (c = d OR e) RETURNING a, b");
+    }
 }
