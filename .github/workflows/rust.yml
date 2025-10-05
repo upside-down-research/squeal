@@ -55,40 +55,6 @@ jobs:
           name: test-results
           path: test-results/*.xml
 
-  deploy-pages:
-    name: Deploy Docs to Pages
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Build docs
-        run: cargo doc --no-deps
-      - name: Create redirect
-        run: |
-          mv target/doc public
-          echo '<meta http-equiv="refresh" content="0; url=squeal/index.html">' > public/index.html
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./public
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
 
   release-build:
     name: Release Build
