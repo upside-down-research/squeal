@@ -787,6 +787,7 @@ pub struct InsertBuilder<'a> {
     columns: Vec<&'a str>,
     values: Vec<&'a str>,
     returning: Option<Columns<'a>>,
+    params: PgParams,
 }
 
 /// Defines a fluent interface for building an Insert.
@@ -811,6 +812,7 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
         columns: Vec::new(),
         values: Vec::new(),
         returning: None,
+        params: PgParams::new(),
     }
 }
 
@@ -838,6 +840,11 @@ impl<'a> InsertBuilder<'a> {
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut InsertBuilder<'a> {
         self.returning = Some(columns);
         self
+    }
+
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    pub fn param(&mut self) -> String {
+        self.params.seq()
     }
 }
 
@@ -897,6 +904,7 @@ pub struct UpdateBuilder<'a> {
     from: Option<&'a str>,
     where_clause: Option<Term<'a>>,
     returning: Option<Columns<'a>>,
+    params: PgParams,
 }
 
 /// Defines a fluent interface for building an Update.
@@ -927,6 +935,7 @@ pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
         from: None,
         where_clause: None,
         returning: None,
+        params: PgParams::new(),
     }
 }
 impl<'a> UpdateBuilder<'a> {
@@ -976,6 +985,10 @@ impl<'a> UpdateBuilder<'a> {
         }
     }
 
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    pub fn param(&mut self) -> String {
+        self.params.seq()
+    }
 }
 
 
@@ -1004,6 +1017,7 @@ impl<'a> Sql for Delete<'a> {
 pub struct DeleteBuilder<'a> {
     table: &'a str,
     where_clause: Option<Term<'a>>,
+    params: PgParams,
 }
 impl <'a> DeleteBuilder<'a> {
     pub fn build(&self) -> Delete<'_> {
@@ -1016,6 +1030,11 @@ impl <'a> DeleteBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    pub fn param(&mut self) -> String {
+        self.params.seq()
+    }
 }
 
 /// Defines a fluent interface for building a Delete.
@@ -1026,6 +1045,7 @@ pub fn D<'a>(table: &'a str) -> DeleteBuilder<'a> {
     DeleteBuilder {
         table,
         where_clause: None,
+        params: PgParams::new(),
     }
 }
 
@@ -1244,7 +1264,7 @@ mod tests {
         assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
     }
 
-    // Test for integrated param() method on QueryBuilder
+    // Tests for integrated param() method on all builders
     #[test]
     fn test_query_builder_param() {
         let mut qb = Q();
@@ -1260,6 +1280,43 @@ mod tests {
             .build()
             .sql();
         assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
+    }
+
+    #[test]
+    fn test_insert_builder_param() {
+        let mut ib = I("users");
+        let p1 = ib.param();
+        let p2 = ib.param();
+        let result = ib
+            .columns(vec!["name", "email"])
+            .values(vec![&p1, &p2])
+            .build()
+            .sql();
+        assert_eq!(result, "INSERT INTO users (name, email) VALUES ($1, $2)");
+    }
+
+    #[test]
+    fn test_update_builder_param() {
+        let mut ub = U("users");
+        let p1 = ub.param();
+        let p2 = ub.param();
+        let result = ub
+            .set(vec![("name", &p1)])
+            .where_(eq("id", &p2))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET name = $1 WHERE id = $2");
+    }
+
+    #[test]
+    fn test_delete_builder_param() {
+        let mut db = D("users");
+        let p1 = db.param();
+        let result = db
+            .where_(eq("id", &p1))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM users WHERE id = $1");
     }
 
     #[test]
