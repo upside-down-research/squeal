@@ -77,7 +77,8 @@ assert_eq!(
 
 // UPDATE with fluent builder
 let update = U("users")
-    .set(vec![("status", "'inactive'")])
+    .columns(vec!["status"])
+    .values(vec!["'inactive'"])
     .where_(Term::Condition(
         Box::new(Term::Atom("last_login")),
         Op::O("<"),
