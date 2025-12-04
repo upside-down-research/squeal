@@ -1,10 +1,10 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use squeal::*;
 
 fn generate() -> String {
         let result = Query {
-        select: Select::new(Columns::Selected(vec!["a", "b"])),
-        from: "table",
+        select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
+        from: Some("table"),
         where_clause: Some(
             Term::Condition(
                 Box::new(Term::Atom("a")),
@@ -24,12 +24,13 @@ fn generate() -> String {
                                               OrderedColumn::Desc("b")]}),
         limit: Some(19),
         offset: Some(10),
+        for_update: false,
         }.sql();
     result
 }
 
 fn fluent_generation() -> String {
-    let mut q = Q("the table");
+    let mut q = Q();
 
     let result = q.select(vec!["a", "sum(b)"])
         .from("the_table")

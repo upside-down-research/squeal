@@ -112,10 +112,10 @@ impl DockerTests {
     fn new() -> DockerTests {
         let cli = Cli::default();
 
-        let result = DockerTests { cli };
-        result
+        
+        DockerTests { cli }
     }
-    fn get_new_node_and_connection(&mut self) -> (testcontainers::Container<Postgres>, postgres::Client) {
+    fn get_new_node_and_connection(&mut self) -> (testcontainers::Container<'_, Postgres>, postgres::Client) {
         let image = RunnableImage::from(Postgres::default()).with_tag("13.3-alpine");
 
         let node = self.cli.run(image);
