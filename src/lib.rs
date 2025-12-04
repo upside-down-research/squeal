@@ -1091,7 +1091,7 @@ mod tests {
         assert_eq!(result, "<>");
     }
 
-    // Tests for Proposal 1B: Extended Op enum
+    // Tests for extended Op enum variants
     #[test]
     fn op_not_equals() {
         let result = Op::NotEquals.sql();
@@ -1134,7 +1134,7 @@ mod tests {
         assert_eq!(result, "IN");
     }
 
-    // Tests for Proposal 1A: Helper functions for WHERE clauses
+    // Tests for WHERE clause helper functions
     #[test]
     fn helper_eq() {
         let result = eq("id", "123").sql();
@@ -1458,7 +1458,7 @@ mod tests {
         );
     }
 
-    // Tests for Proposal 4A: where_opt() and and_where()
+    // Tests for where_opt() and and_where() methods
     #[test]
     fn test_where_opt_with_some() {
         let filter = Some(eq("status", "'active'"));
@@ -1742,7 +1742,7 @@ mod tests {
         assert_eq!(result, "UPDATE table SET a = 1, b = 2 WHERE a = b");
     }
 
-    // Test for Proposal 2A: UpdateBuilder::set() method
+    // Tests for UpdateBuilder::set() method
     #[test]
     fn test_update_with_set() {
         let result = U("users")
