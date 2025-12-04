@@ -73,6 +73,14 @@ pub trait Build {
     fn build(&self) -> Self;
 }
 
+/// The Parameterized trait provides PostgreSQL parameter placeholder generation.
+/// Implemented by all query builder structs to provide consistent param() API.
+pub trait Parameterized {
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    /// Each builder maintains its own isolated counter.
+    fn param(&mut self) -> String;
+}
+
 /// The Columns enum is used to specify which columns to select.
 ///
 /// It is used in the Select struct.
@@ -599,10 +607,10 @@ impl<'a> QueryBuilder<'a> {
         self.for_update = true;
         self
     }
+}
 
-    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
-    /// Each QueryBuilder has its own parameter counter to prevent conflicts
-    pub fn param(&mut self) -> String {
+impl<'a> Parameterized for QueryBuilder<'a> {
+    fn param(&mut self) -> String {
         self.params.seq()
     }
 }
@@ -841,9 +849,10 @@ impl<'a> InsertBuilder<'a> {
         self.returning = Some(columns);
         self
     }
+}
 
-    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
-    pub fn param(&mut self) -> String {
+impl<'a> Parameterized for InsertBuilder<'a> {
+    fn param(&mut self) -> String {
         self.params.seq()
     }
 }
@@ -984,9 +993,10 @@ impl<'a> UpdateBuilder<'a> {
             returning: self.returning.clone(),
         }
     }
+}
 
-    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
-    pub fn param(&mut self) -> String {
+impl<'a> Parameterized for UpdateBuilder<'a> {
+    fn param(&mut self) -> String {
         self.params.seq()
     }
 }
@@ -1030,9 +1040,10 @@ impl <'a> DeleteBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+}
 
-    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
-    pub fn param(&mut self) -> String {
+impl<'a> Parameterized for DeleteBuilder<'a> {
+    fn param(&mut self) -> String {
         self.params.seq()
     }
 }
