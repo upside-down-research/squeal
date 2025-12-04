@@ -70,6 +70,7 @@ pub trait Sql {
 /// The Build trait is used by the XBuilder structs to build the X struct.
 /// This is a means of providing a nice factory/fluent interface.
 pub trait Build {
+    /// Builds the final struct from the builder
     fn build(&self) -> Self;
 }
 
@@ -102,7 +103,9 @@ pub trait Parameterized {
 /// ```
 #[derive(Clone)]
 pub enum Columns<'a> {
+    /// Wildcard selector (*)
     Star,
+    /// Specific column names
     Selected(Vec<&'a str>),
 }
 
@@ -126,10 +129,19 @@ impl<'a> Sql for Columns<'a> {
 /// projection.
 #[derive(Clone)]
 pub struct Select<'a> {
+    /// The columns to select
     pub cols: Columns<'a>,
 }
 
 impl<'a> Select<'a> {
+    /// Creates a new Select with the given columns
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let select = Select::new(Columns::Star);
+    /// assert_eq!(select.sql(), "*");
+    /// ```
     pub fn new(c: Columns) -> Select {
         Select { cols: c }
     }
@@ -147,16 +159,27 @@ impl<'a> Sql for Select<'a> {
 /// The Op::O variant is an escape hatch to allow you to use any operator you want.
 #[derive(Clone)]
 pub enum Op<'a> {
+    /// Logical AND operator
     And,
+    /// Logical OR operator
     Or,
+    /// Equality operator (=)
     Equals,
+    /// Not equals operator (!=)
     NotEquals,
+    /// Greater than operator (>)
     GreaterThan,
+    /// Less than operator (<)
     LessThan,
+    /// Greater than or equal operator (>=)
     GreaterOrEqual,
+    /// Less than or equal operator (<=)
     LessOrEqual,
+    /// LIKE operator for pattern matching
     Like,
+    /// IN operator for set membership
     In,
+    /// Custom operator escape hatch
     O(&'a str),
 }
 
@@ -422,10 +445,19 @@ impl Default for PgParams {
 /// It is constructed with a Term, similar to a Where clause.
 #[derive(Clone)]
 pub struct Having<'a> {
+    /// The condition for the HAVING clause
     pub term: Term<'a>,
 }
 
 impl<'a> Having<'a> {
+    /// Creates a new Having clause with the given term
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let having = Having::new(gt("count", "5"));
+    /// assert_eq!(having.sql(), "count > 5");
+    /// ```
     pub fn new(t: Term<'a>) -> Having<'a> {
         Having { term: t }
     }
@@ -443,7 +475,9 @@ impl<'a> Sql for Having<'a> {
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
 #[derive(Clone)]
 pub enum OrderedColumn<'a> {
+    /// Ascending order
     Asc(&'a str),
+    /// Descending order
     Desc(&'a str),
 }
 
@@ -453,6 +487,7 @@ pub enum OrderedColumn<'a> {
 /// Each column can be ascending or descending
 #[derive(Clone)]
 pub struct OrderBy<'a> {
+    /// List of columns with their sort order
     pub columns: Vec<OrderedColumn<'a>>,
 }
 
@@ -487,11 +522,17 @@ pub struct Query<'a> {
     pub from: Option<&'a str>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
+    /// The columns to group by, if any.
     pub group_by: Option<Vec<&'a str>>,
+    /// The having clause conditions, if any.
     pub having: Option<Having<'a>>,
+    /// The order by clause, if any.
     pub order_by: Option<OrderBy<'a>>,
+    /// The maximum number of rows to return.
     pub limit: Option<u64>,
+    /// The number of rows to skip.
     pub offset: Option<u64>,
+    /// Whether to lock rows with FOR UPDATE.
     pub for_update: bool,
 }
 
@@ -499,15 +540,25 @@ pub struct Query<'a> {
 /// It is not intended to be used directly, but rather through the Q() function.
 /// See the integration_test.rs for an example of usage.
 pub struct QueryBuilder<'a> {
+    /// The select clause
     pub select: Option<Select<'a>>,
+    /// The table to select from
     pub from: Option<&'a str>,
+    /// The WHERE clause conditions
     pub where_clause: Option<Term<'a>>,
+    /// The columns to GROUP BY
     pub group_by: Option<Vec<&'a str>>,
+    /// The HAVING clause conditions
     pub having: Option<Having<'a>>,
+    /// The ORDER BY clause
     pub order_by: Option<OrderBy<'a>>,
+    /// The LIMIT value
     pub limit: Option<u64>,
+    /// The OFFSET value
     pub offset: Option<u64>,
+    /// Whether to use FOR UPDATE
     pub for_update: bool,
+    /// PostgreSQL parameter counter
     pub params: PgParams,
 }
 
@@ -531,6 +582,15 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
 }
 
 impl<'a> QueryBuilder<'a> {
+    /// Builds the final Query from this builder
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users");
+    /// ```
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
@@ -544,14 +604,41 @@ impl<'a> QueryBuilder<'a> {
             for_update: self.for_update,
         }
     }
+    /// Sets the columns to SELECT
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["id", "name"]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT id, name FROM users");
+    /// ```
     pub fn select(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.select = Some(Select::new(Columns::Selected(cols)));
         self
     }
+    /// Sets the table to SELECT FROM
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("products").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM products");
+    /// ```
     pub fn from(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
         self.from = Some(table);
         self
     }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").where_(eq("id", "1")).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users WHERE id = 1");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.where_clause = Some(term);
         self
@@ -583,26 +670,80 @@ impl<'a> QueryBuilder<'a> {
         self
     }
 
+    /// Sets the GROUP BY clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["category", "count(*)"]).from("products").group_by(vec!["category"]).build();
+    /// assert_eq!(query.sql(), "SELECT category, count(*) FROM products GROUP BY category");
+    /// ```
     pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.group_by = Some(cols);
         self
     }
+    /// Sets the HAVING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["category", "count(*)"]).from("products").group_by(vec!["category"]).having(gt("count(*)", "5")).build();
+    /// assert_eq!(query.sql(), "SELECT category, count(*) FROM products GROUP BY category HAVING count(*) > 5");
+    /// ```
     pub fn having(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.having = Some(Having::new(term));
         self
     }
+    /// Sets the ORDER BY clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").order_by(vec![OrderedColumn::Desc("created_at")]).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users ORDER BY created_at DESC");
+    /// ```
     pub fn order_by(&'a mut self, cols: Vec<OrderedColumn<'a>>) -> &'a mut QueryBuilder<'a> {
         self.order_by = Some(OrderBy { columns: cols });
         self
     }
+    /// Sets the LIMIT clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").limit(10).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users LIMIT 10");
+    /// ```
     pub fn limit(&'a mut self, limit: u64) -> &'a mut QueryBuilder<'a> {
         self.limit = Some(limit);
         self
     }
+    /// Sets the OFFSET clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").offset(20).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users OFFSET 20");
+    /// ```
     pub fn offset(&'a mut self, offset: u64) -> &'a mut QueryBuilder<'a> {
         self.offset = Some(offset);
         self
     }
+    /// Adds FOR UPDATE to lock selected rows
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").for_update().build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users FOR UPDATE");
+    /// ```
     pub fn for_update(&'a mut self) -> &'a mut QueryBuilder<'a> {
         self.for_update = true;
         self
@@ -652,8 +793,9 @@ impl<'a> Sql for Query<'a> {
 
 /// CreateTable is used to specify a create table query.
 pub struct CreateTable<'a> {
+    /// The name of the table to create
     pub table: &'a str,
-    /// The columns to insert. Note that they must be syntactically correct.
+    /// The columns to create. Note that they must be syntactically correct.
     pub columns: Vec<String>,
 }
 
@@ -675,6 +817,7 @@ impl<'a> Sql for CreateTable<'a> {
 
 /// DropTable is used to specify a drop table query.
 pub struct DropTable<'a> {
+    /// The name of the table to drop
     pub table: &'a str,
 }
 
@@ -688,7 +831,9 @@ impl<'a> Sql for DropTable<'a> {
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
 pub struct TableBuilder {
+    /// The table name
     pub table: String,
+    /// Column definitions (each inner Vec represents one column definition)
     pub columns: Vec<Vec<String>>,
 }
 
@@ -702,6 +847,15 @@ pub fn T(s: &str) -> TableBuilder {
 }
 
 impl TableBuilder {
+    /// Builds a CREATE TABLE statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let create = tb.column("id", "serial", vec![]).build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE users (id serial)");
+    /// ```
     pub fn build_create_table(&self) -> CreateTable<'_> {
         let mut table_cols = Vec::new();
         for c in &self.columns {
@@ -712,15 +866,44 @@ impl TableBuilder {
             columns: table_cols,
         }
     }
+    /// Builds a DROP TABLE statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let drop = tb.build_drop_table();
+    /// assert_eq!(drop.sql(), "DROP TABLE users");
+    /// ```
     pub fn build_drop_table(&self) -> DropTable<'_> {
         DropTable {
             table: &self.table,
         }
     }
+    /// Changes the table name
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut builder = T("old_name");
+    /// builder.table("new_name".to_string());
+    /// let create = builder.build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE new_name ()");
+    /// ```
     pub fn table(&mut self, table: String) -> &mut TableBuilder {
         self.table = table.clone();
         self
     }
+    /// Adds a column definition
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let create = tb.column("id", "serial", vec!["PRIMARY KEY"])
+    ///     .build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE users (id serial PRIMARY KEY)");
+    /// ```
     pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder {
         let mut col = vec![column, datatype];
         col.extend(other);
@@ -757,6 +940,7 @@ pub struct Insert<'a> {
     pub columns: Vec<&'a str>,
     /// The values to insert.
     pub values: Vec<&'a str>,
+    /// Optional RETURNING clause columns
     pub returning: Option<Columns<'a>>,
 }
 
@@ -790,6 +974,7 @@ impl<'a> Sql for Insert<'a> {
     }
 }
 
+/// Builder for constructing INSERT statements with a fluent interface
 pub struct InsertBuilder<'a> {
     table: &'a str,
     columns: Vec<&'a str>,
@@ -825,6 +1010,15 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
 }
 
 impl<'a> InsertBuilder<'a> {
+    /// Builds the final Insert statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Alice'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice')");
+    /// ```
     pub fn build(&self) -> Insert<'_> {
         Insert {
             table: self.table,
@@ -833,18 +1027,45 @@ impl<'a> InsertBuilder<'a> {
             returning: self.returning.clone(),
         }
     }
+    /// Sets the columns to insert into
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name", "email"]).values(vec!["'Alice'", "'alice@example.com'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
+    /// ```
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
+    /// Sets the values to insert
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Bob'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob')");
+    /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
+    /// Sets the RETURNING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Charlie'"]).returning(Columns::Star).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Charlie') RETURNING *");
+    /// ```
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut InsertBuilder<'a> {
         self.returning = Some(columns);
         self
@@ -959,30 +1180,84 @@ impl<'a> UpdateBuilder<'a> {
         self
     }
 
+    /// Sets the columns to update (use with values())
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.columns(vec!["name"]).values(vec!["'David'"]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET name = 'David'");
+    /// ```
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
+    /// Sets the values to update (use with columns())
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.columns(vec!["email"]).values(vec!["'new@example.com'"]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET email = 'new@example.com'");
+    /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
+    /// Sets the FROM clause for PostgreSQL UPDATE...FROM syntax
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("active", "false")]).from("banned").where_(eq("users.id", "banned.user_id")).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET active = false FROM banned WHERE users.id = banned.user_id");
+    /// ```
     pub fn from(&'a mut self, from: &'a str) -> &'a mut UpdateBuilder<'a> {
         self.from = Some(from);
         self
     }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("active", "false")]).where_(eq("id", "5")).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET active = false WHERE id = 5");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut UpdateBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+    /// Sets the RETURNING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("status", "'active'")]).returning(Columns::Selected(vec!["id", "status"])).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET status = 'active' RETURNING id, status");
+    /// ```
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut UpdateBuilder<'a> {
         self.returning = Some(columns);
         self
     }
+    /// Builds the final Update statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("name", "'Eve'")]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET name = 'Eve'");
+    /// ```
     pub fn build(&self) -> Update<'_> {
         Update {
             table: self.table,
@@ -1001,7 +1276,17 @@ impl<'a> Parameterized for UpdateBuilder<'a> {
     }
 }
 
-
+/// The Delete struct represents a DELETE statement
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let delete = Delete {
+///     table: "users",
+///     where_clause: Some(eq("id", "123")),
+/// };
+/// assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 123");
+/// ```
 #[derive(Clone)]
 pub struct Delete<'a> {
     /// The table name for the delete clause.
@@ -1023,19 +1308,36 @@ impl<'a> Sql for Delete<'a> {
 /// The DeleteBuilder struct is a fluent interface for building a Delete.
 /// It is not intended to be used directly, but rather through the D() function.
 /// See the integration_test.rs for an example of usage.
-///
 pub struct DeleteBuilder<'a> {
     table: &'a str,
     where_clause: Option<Term<'a>>,
     params: PgParams,
 }
 impl <'a> DeleteBuilder<'a> {
+    /// Builds the final Delete statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut db = D("users");
+    /// let delete = db.where_(eq("id", "10")).build();
+    /// assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 10");
+    /// ```
     pub fn build(&self) -> Delete<'_> {
         Delete {
             table: self.table,
             where_clause: self.where_clause.clone(),
         }
     }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut db = D("users");
+    /// let delete = db.where_(eq("active", "false")).build();
+    /// assert_eq!(delete.sql(), "DELETE FROM users WHERE active = false");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut DeleteBuilder<'a> {
         self.where_clause = Some(term);
         self
@@ -1794,5 +2096,50 @@ mod tests {
             .build()
             .sql();
         assert_eq!(result, "UPDATE table SET a = 1, b = 2 FROM table2 WHERE a = b AND (c = d OR e) RETURNING a, b");
+    }
+
+    // Test for Term::Null variant (line 247)
+    #[test]
+    fn test_term_null() {
+        let result = Term::Null.sql();
+        assert_eq!(result, "");
+    }
+
+    // Test for PgParams::default() (lines 414-416)
+    #[test]
+    fn test_pg_params_default() {
+        let mut pg = PgParams::default();
+        assert_eq!(pg.seq(), "$1");
+        assert_eq!(pg.seq(), "$2");
+    }
+
+    // Test for QueryBuilder::for_update() (lines 606-609)
+    #[test]
+    fn test_query_builder_for_update() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .for_update()
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users FOR UPDATE");
+    }
+
+    // Test for TableBuilder::build_drop_table() (lines 715-719)
+    #[test]
+    fn test_table_builder_drop_table() {
+        let result = T("test_table")
+            .build_drop_table()
+            .sql();
+        assert_eq!(result, "DROP TABLE test_table");
+    }
+
+    // Test for TableBuilder::table() (lines 720-723)
+    #[test]
+    fn test_table_builder_table_method() {
+        let mut builder = T("original_table");
+        builder.table("new_table".to_string());
+        let result = builder.build_create_table().sql();
+        assert_eq!(result, "CREATE TABLE new_table ()");
     }
 }
