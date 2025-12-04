@@ -242,42 +242,68 @@ U("users")
 
 ### Priority 3: Parameter Binding Support
 
-#### Proposal 3A: Placeholder Struct
+#### Proposal 3A: PostgreSQL Parameter Helpers
+
+Since squeal only supports PostgreSQL, we can provide simple, focused helpers for `$1`, `$2`, etc.
+
+**Option 1: Simple Function (Manual Numbering)**
 
 ```rust
-pub struct Param {
-    sequence: usize,
-    format: PlaceholderFormat,
+/// Returns a PostgreSQL parameter placeholder like "$1", "$2", etc.
+pub fn p(n: usize) -> String {
+    format!("${}", n)
 }
 
-pub enum PlaceholderFormat {
-    QuestionMark,  // MySQL: ?
-    Dollar,        // PostgreSQL: $1, $2
-    Colon,         // Oracle: :1, :2
-}
-
-// Add to builders
-impl<'a> QueryBuilder<'a> {
-    pub fn placeholder_format(&mut self, fmt: PlaceholderFormat) -> &mut Self {
-        self.placeholder_format = Some(fmt);
-        self
-    }
-}
-
-// Usage:
-let params = Params::new(PlaceholderFormat::Dollar);
+// Usage - explicit and clear:
 Q()
     .select(vec!["*"])
     .from("users")
-    .where_(eq("id", params.next()))  // Returns "$1"
-    .and(eq("status", params.next()))  // Returns "$2"
+    .where_(and(
+        eq("id", &p(1)),
+        eq("status", &p(2))
+    ))
 ```
 
+**Option 2: Auto-Incrementing Counter**
+
+```rust
+/// PostgreSQL parameter counter for auto-sequencing
+pub struct PgParams {
+    count: usize,
+}
+
+impl PgParams {
+    pub fn new() -> Self {
+        PgParams { count: 0 }
+    }
+
+    /// Returns next parameter: $1, $2, $3, etc.
+    pub fn seq(&mut self) -> String {
+        self.count += 1;
+        format!("${}", self.count)
+    }
+}
+
+// Usage - automatic sequencing:
+let mut pg = PgParams::new();
+Q()
+    .select(vec!["*"])
+    .from("users")
+    .where_(and(
+        eq("id", &pg.seq()),      // "$1"
+        eq("status", &pg.seq())   // "$2"
+    ))
+```
+
+**Recommendation**: Provide both. Use `p(n)` for simple cases with few parameters, use `PgParams` for complex queries with many parameters.
+
 **Benefits**:
-- Automatic parameter sequencing
-- No "off by one" errors
-- Multi-database support
+- PostgreSQL-focused, no unnecessary abstraction
+- `p(n)` is minimal and clear for simple cases
+- `seq()` is shorter than `next()` and specific to sequencing
+- No "off by one" errors with auto-increment
 - Explicit, no magic
+- Simple functions, easy to understand
 
 ### Priority 4: Conditional Query Building
 
@@ -381,11 +407,11 @@ Q()
 
 ### Phase 2: Advanced Features
 
-1. Add parameter binding support
+1. Add PostgreSQL parameter helpers (`p(n)` and `PgParams`)
 2. Add where_opt() and and_where() methods
 3. Add convenience functions (in_, between, is_null)
 
-**Impact**: Enables dynamic query building, maintains simplicity
+**Impact**: Enables dynamic query building and safer parameter handling, maintains simplicity
 
 ### Phase 3: Documentation & Examples
 
@@ -535,8 +561,8 @@ All proposals maintain squeal's core principles:
 5. **where_opt()** and **and_where()** for dynamic queries
 6. **Common SQL helpers** (in_, between, is_null)
 
-### Nice to Have (Medium Impact, Complexity)
-7. **Parameter binding support** (requires design consideration)
+### Nice to Have (Medium Impact, Low Complexity)
+7. **PostgreSQL parameter helpers** (`p(n)` function and `PgParams` struct)
 8. **Builder reuse patterns** (like Go's StatementBuilder)
 
 ### Documentation Improvements
