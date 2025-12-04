@@ -500,6 +500,7 @@ pub struct QueryBuilder<'a> {
     pub limit: Option<u64>,
     pub offset: Option<u64>,
     pub for_update: bool,
+    pub params: PgParams,
 }
 
 /// The Q function is a fluent interface for building a Query.
@@ -517,6 +518,7 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
         limit: None,
         offset: None,
         for_update: false,
+        params: PgParams::new(),
     }
 }
 
@@ -596,6 +598,12 @@ impl<'a> QueryBuilder<'a> {
     pub fn for_update(&'a mut self) -> &'a mut QueryBuilder<'a> {
         self.for_update = true;
         self
+    }
+
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    /// Each QueryBuilder has its own parameter counter to prevent conflicts
+    pub fn param(&mut self) -> String {
+        self.params.seq()
     }
 }
 
@@ -1230,6 +1238,24 @@ mod tests {
             .where_(and(
                 eq("id", &pg.seq()),
                 eq("status", &pg.seq())
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
+    }
+
+    // Test for integrated param() method on QueryBuilder
+    #[test]
+    fn test_query_builder_param() {
+        let mut qb = Q();
+        let p1 = qb.param();
+        let p2 = qb.param();
+        let result = qb
+            .select(vec!["*"])
+            .from("users")
+            .where_(and(
+                eq("id", &p1),
+                eq("status", &p2)
             ))
             .build()
             .sql();
