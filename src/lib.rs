@@ -142,6 +142,13 @@ pub enum Op<'a> {
     And,
     Or,
     Equals,
+    NotEquals,
+    GreaterThan,
+    LessThan,
+    GreaterOrEqual,
+    LessOrEqual,
+    Like,
+    In,
     O(&'a str),
 }
 
@@ -151,6 +158,13 @@ impl<'a> Sql for Op<'a> {
             Op::And => "AND",
             Op::Or => "OR",
             Op::Equals => "=",
+            Op::NotEquals => "!=",
+            Op::GreaterThan => ">",
+            Op::LessThan => "<",
+            Op::GreaterOrEqual => ">=",
+            Op::LessOrEqual => "<=",
+            Op::Like => "LIKE",
+            Op::In => "IN",
             Op::O(s) => s,
         }
             .to_string()
@@ -225,6 +239,172 @@ impl<'a> Sql for Term<'a> {
             Term::Null => "".to_string(),
             Term::Parens(t) => format!("({})", t.sql()),
         }
+    }
+}
+
+// Helper functions for building WHERE clauses ergonomically
+
+/// Creates an equality condition (=)
+pub fn eq<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::Equals,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a not-equals condition (!=)
+pub fn ne<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::NotEquals,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a greater-than condition (>)
+pub fn gt<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::GreaterThan,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a less-than condition (<)
+pub fn lt<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::LessThan,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a greater-than-or-equal condition (>=)
+pub fn gte<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::GreaterOrEqual,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a less-than-or-equal condition (<=)
+pub fn lte<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::LessOrEqual,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a LIKE condition
+pub fn like<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::Like,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Combines two terms with AND
+pub fn and<'a>(left: Term<'a>, right: Term<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(left),
+        Op::And,
+        Box::new(right)
+    )
+}
+
+/// Combines two terms with OR
+pub fn or<'a>(left: Term<'a>, right: Term<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(left),
+        Op::Or,
+        Box::new(right)
+    )
+}
+
+/// Wraps a term in parentheses
+pub fn parens<'a>(term: Term<'a>) -> Term<'a> {
+    Term::Parens(Box::new(term))
+}
+
+// Convenience functions for common SQL patterns
+
+/// Creates an IN clause
+/// Example: in_("status", vec!["'active'", "'pending'"]) => "status IN ('active', 'pending')"
+pub fn in_<'a>(column: &'a str, values: Vec<&'a str>) -> Term<'a> {
+    let values_str = values.join(", ");
+    Term::Atom(Box::leak(format!("{} IN ({})", column, values_str).into_boxed_str()))
+}
+
+/// Creates a BETWEEN clause
+/// Example: between("age", "18", "65") => "age BETWEEN 18 AND 65"
+pub fn between<'a>(column: &'a str, low: &'a str, high: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} BETWEEN {} AND {}", column, low, high).into_boxed_str()))
+}
+
+/// Creates an IS NULL condition
+/// Example: is_null("deleted_at") => "deleted_at IS NULL"
+pub fn is_null<'a>(column: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} IS NULL", column).into_boxed_str()))
+}
+
+/// Creates an IS NOT NULL condition
+/// Example: is_not_null("created_at") => "created_at IS NOT NULL"
+pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} IS NOT NULL", column).into_boxed_str()))
+}
+
+// PostgreSQL parameter helpers
+
+/// Returns a PostgreSQL parameter placeholder
+/// Example: p(1) => "$1", p(2) => "$2"
+pub fn p(n: usize) -> String {
+    format!("${}", n)
+}
+
+/// PostgreSQL parameter counter for auto-sequencing
+/// Automatically generates $1, $2, $3, etc. as you call seq()
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let mut pg = PgParams::new();
+/// let p1 = pg.seq();  // "$1"
+/// let p2 = pg.seq();  // "$2"
+/// let mut qb = Q();
+/// let query = qb
+///     .select(vec!["*"])
+///     .from("users")
+///     .where_(and(
+///         eq("id", &p1),
+///         eq("status", &p2)
+///     ))
+///     .build();
+/// assert_eq!(query.sql(), "SELECT * FROM users WHERE id = $1 AND status = $2");
+/// ```
+pub struct PgParams {
+    count: usize,
+}
+
+impl PgParams {
+    /// Creates a new parameter counter starting at 0
+    pub fn new() -> Self {
+        PgParams { count: 0 }
+    }
+
+    /// Returns the next parameter placeholder ($1, $2, $3, etc.)
+    pub fn seq(&mut self) -> String {
+        self.count += 1;
+        format!("${}", self.count)
+    }
+}
+
+impl Default for PgParams {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -366,6 +546,33 @@ impl<'a> QueryBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+
+    /// Sets WHERE clause only if the Option contains Some value
+    /// Useful for conditional/dynamic query building
+    pub fn where_opt(&'a mut self, term: Option<Term<'a>>) -> &'a mut QueryBuilder<'a> {
+        if let Some(t) = term {
+            self.where_clause = Some(t);
+        }
+        self
+    }
+
+    /// Adds a condition to the WHERE clause with AND
+    /// If no WHERE clause exists yet, this becomes the first condition
+    /// Otherwise, it ANDs the new condition with the existing one
+    pub fn and_where(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        match &self.where_clause {
+            None => self.where_clause = Some(term),
+            Some(existing) => {
+                self.where_clause = Some(Term::Condition(
+                    Box::new(existing.clone()),
+                    Op::And,
+                    Box::new(term)
+                ));
+            }
+        }
+        self
+    }
+
     pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.group_by = Some(cols);
         self
@@ -715,6 +922,17 @@ pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
     }
 }
 impl<'a> UpdateBuilder<'a> {
+    /// Sets column-value pairs for the UPDATE statement
+    /// This is more ergonomic than using separate columns() and values() methods
+    /// as it keeps column-value pairs together, preventing mismatches.
+    pub fn set(&'a mut self, pairs: Vec<(&'a str, &'a str)>) -> &'a mut UpdateBuilder<'a> {
+        for (col, val) in pairs {
+            self.columns.push(col);
+            self.values.push(val);
+        }
+        self
+    }
+
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for c in columns {
             self.columns.push(c);
@@ -832,6 +1050,190 @@ mod tests {
     fn op_o() {
         let result = Op::O("<>").sql();
         assert_eq!(result, "<>");
+    }
+
+    // Tests for Proposal 1B: Extended Op enum
+    #[test]
+    fn op_not_equals() {
+        let result = Op::NotEquals.sql();
+        assert_eq!(result, "!=");
+    }
+
+    #[test]
+    fn op_greater_than() {
+        let result = Op::GreaterThan.sql();
+        assert_eq!(result, ">");
+    }
+
+    #[test]
+    fn op_less_than() {
+        let result = Op::LessThan.sql();
+        assert_eq!(result, "<");
+    }
+
+    #[test]
+    fn op_greater_or_equal() {
+        let result = Op::GreaterOrEqual.sql();
+        assert_eq!(result, ">=");
+    }
+
+    #[test]
+    fn op_less_or_equal() {
+        let result = Op::LessOrEqual.sql();
+        assert_eq!(result, "<=");
+    }
+
+    #[test]
+    fn op_like() {
+        let result = Op::Like.sql();
+        assert_eq!(result, "LIKE");
+    }
+
+    #[test]
+    fn op_in() {
+        let result = Op::In.sql();
+        assert_eq!(result, "IN");
+    }
+
+    // Tests for Proposal 1A: Helper functions for WHERE clauses
+    #[test]
+    fn helper_eq() {
+        let result = eq("id", "123").sql();
+        assert_eq!(result, "id = 123");
+    }
+
+    #[test]
+    fn helper_ne() {
+        let result = ne("status", "'inactive'").sql();
+        assert_eq!(result, "status != 'inactive'");
+    }
+
+    #[test]
+    fn helper_gt() {
+        let result = gt("age", "18").sql();
+        assert_eq!(result, "age > 18");
+    }
+
+    #[test]
+    fn helper_lt() {
+        let result = lt("price", "100").sql();
+        assert_eq!(result, "price < 100");
+    }
+
+    #[test]
+    fn helper_gte() {
+        let result = gte("score", "50").sql();
+        assert_eq!(result, "score >= 50");
+    }
+
+    #[test]
+    fn helper_lte() {
+        let result = lte("count", "10").sql();
+        assert_eq!(result, "count <= 10");
+    }
+
+    #[test]
+    fn helper_like() {
+        let result = like("name", "'%john%'").sql();
+        assert_eq!(result, "name LIKE '%john%'");
+    }
+
+    #[test]
+    fn helper_and() {
+        let result = and(
+            eq("status", "'active'"),
+            gt("age", "18")
+        ).sql();
+        assert_eq!(result, "status = 'active' AND age > 18");
+    }
+
+    #[test]
+    fn helper_or() {
+        let result = or(
+            eq("role", "'admin'"),
+            eq("role", "'superuser'")
+        ).sql();
+        assert_eq!(result, "role = 'admin' OR role = 'superuser'");
+    }
+
+    #[test]
+    fn helper_parens() {
+        let result = parens(eq("a", "b")).sql();
+        assert_eq!(result, "(a = b)");
+    }
+
+    #[test]
+    fn helper_complex_combination() {
+        let result = and(
+            eq("active", "true"),
+            parens(or(
+                gt("age", "21"),
+                eq("verified", "true")
+            ))
+        ).sql();
+        assert_eq!(result, "active = true AND (age > 21 OR verified = true)");
+    }
+
+    // Tests for convenience functions (in_, between, is_null, is_not_null)
+    #[test]
+    fn helper_in() {
+        let result = in_("status", vec!["'active'", "'pending'"]).sql();
+        assert_eq!(result, "status IN ('active', 'pending')");
+    }
+
+    #[test]
+    fn helper_in_single() {
+        let result = in_("id", vec!["123"]).sql();
+        assert_eq!(result, "id IN (123)");
+    }
+
+    #[test]
+    fn helper_between() {
+        let result = between("age", "18", "65").sql();
+        assert_eq!(result, "age BETWEEN 18 AND 65");
+    }
+
+    #[test]
+    fn helper_is_null() {
+        let result = is_null("deleted_at").sql();
+        assert_eq!(result, "deleted_at IS NULL");
+    }
+
+    #[test]
+    fn helper_is_not_null() {
+        let result = is_not_null("created_at").sql();
+        assert_eq!(result, "created_at IS NOT NULL");
+    }
+
+    // Tests for PostgreSQL parameter helpers (p function and PgParams)
+    #[test]
+    fn test_p_function() {
+        assert_eq!(p(1), "$1");
+        assert_eq!(p(2), "$2");
+        assert_eq!(p(10), "$10");
+    }
+
+    #[test]
+    fn test_pg_params_seq() {
+        let mut pg = PgParams::new();
+        assert_eq!(pg.seq(), "$1");
+        assert_eq!(pg.seq(), "$2");
+        assert_eq!(pg.seq(), "$3");
+    }
+
+    #[test]
+    fn test_pg_params_in_query() {
+        let mut pg = PgParams::new();
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_(and(
+                eq("id", &pg.seq()),
+                eq("status", &pg.seq())
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
     }
 
     #[test]
@@ -960,6 +1362,68 @@ mod tests {
             result,
             "SELECT a, b FROM table WHERE a = b AND (c = d OR e)"
         );
+    }
+
+    // Tests for Proposal 4A: where_opt() and and_where()
+    #[test]
+    fn test_where_opt_with_some() {
+        let filter = Some(eq("status", "'active'"));
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(filter)
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active'");
+    }
+
+    #[test]
+    fn test_where_opt_with_none() {
+        let filter: Option<Term> = None;
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(filter)
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users");
+    }
+
+    #[test]
+    fn test_and_where_single() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .and_where(eq("status", "'active'"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active'");
+    }
+
+    #[test]
+    fn test_and_where_multiple() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .and_where(eq("status", "'active'"))
+            .and_where(gt("age", "18"))
+            .and_where(eq("verified", "true"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active' AND age > 18 AND verified = true");
+    }
+
+    #[test]
+    fn test_where_opt_and_and_where_combined() {
+        let optional_filter = Some(eq("role", "'admin'"));
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(optional_filter)
+            .and_where(eq("active", "true"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE role = 'admin' AND active = true");
     }
 
     #[test]
@@ -1183,6 +1647,33 @@ mod tests {
             .sql();
         assert_eq!(result, "UPDATE table SET a = 1, b = 2 WHERE a = b");
     }
+
+    // Test for Proposal 2A: UpdateBuilder::set() method
+    #[test]
+    fn test_update_with_set() {
+        let result = U("users")
+            .set(vec![
+                ("name", "'John'"),
+                ("email", "'john@example.com'"),
+                ("status", "'active'")
+            ])
+            .where_(eq("id", "123"))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET name = 'John', email = 'john@example.com', status = 'active' WHERE id = 123");
+    }
+
+    #[test]
+    fn test_update_with_set_no_where() {
+        let result = U("users")
+            .set(vec![
+                ("status", "'inactive'")
+            ])
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET status = 'inactive'");
+    }
+
     #[test]
     fn test_update_complex() {
         let result = U("table")
