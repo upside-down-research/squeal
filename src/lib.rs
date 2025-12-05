@@ -17,7 +17,7 @@
 //!
 //! let result = Query {
 //!      select: Some(Select::new(Columns::Star)),
-//!      from: Some("table"),
+//!      from: Some(FromSource::Table("table")),
 //!      where_clause: Some(Term::Condition(
 //!        Box::new(Term::Atom("a")),
 //!      Op::O("<>"),
@@ -82,6 +82,30 @@ pub trait Parameterized {
     fn param(&mut self) -> String;
 }
 
+/// A single expression in a SELECT clause
+#[derive(Clone)]
+pub enum SelectExpression<'a> {
+    /// A simple column name or expression
+    Column(&'a str),
+    /// A subquery with an optional alias
+    Subquery(Box<Query<'a>>, Option<&'a str>),
+}
+
+impl<'a> Sql for SelectExpression<'a> {
+    fn sql(&self) -> String {
+        match self {
+            SelectExpression::Column(col) => col.to_string(),
+            SelectExpression::Subquery(query, alias) => {
+                if let Some(a) = alias {
+                    format!("({}) AS {}", query.sql(), a)
+                } else {
+                    format!("({})", query.sql())
+                }
+            }
+        }
+    }
+}
+
 /// The Columns enum is used to specify which columns to select.
 ///
 /// It is used in the Select struct.
@@ -107,6 +131,8 @@ pub enum Columns<'a> {
     Star,
     /// Specific column names
     Selected(Vec<&'a str>),
+    /// Mix of columns and subqueries
+    Expressions(Vec<SelectExpression<'a>>),
 }
 
 impl<'a> Sql for Columns<'a> {
@@ -114,6 +140,12 @@ impl<'a> Sql for Columns<'a> {
         match &self {
             Columns::Star => "*".to_string(),
             Columns::Selected(v) => v.join(", ").to_string(),
+            Columns::Expressions(exprs) => {
+                exprs.iter()
+                    .map(|e| e.sql())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            }
         }
     }
 }
@@ -179,6 +211,14 @@ pub enum Op<'a> {
     Like,
     /// IN operator for set membership
     In,
+    /// EXISTS operator for subquery existence testing
+    Exists,
+    /// NOT EXISTS operator for subquery non-existence testing
+    NotExists,
+    /// ANY operator for comparing against any value in a subquery
+    Any,
+    /// ALL operator for comparing against all values in a subquery
+    All,
     /// Custom operator escape hatch
     O(&'a str),
 }
@@ -196,6 +236,10 @@ impl<'a> Sql for Op<'a> {
             Op::LessOrEqual => "<=",
             Op::Like => "LIKE",
             Op::In => "IN",
+            Op::Exists => "EXISTS",
+            Op::NotExists => "NOT EXISTS",
+            Op::Any => "ANY",
+            Op::All => "ALL",
             Op::O(s) => s,
         }
             .to_string()
@@ -260,6 +304,8 @@ pub enum Term<'a> {
     Parens(Box<Term<'a>>),
     /// A null term.
     Null,
+    /// A subquery that can be used in WHERE clauses
+    Subquery(Box<Query<'a>>),
 }
 
 impl<'a> Sql for Term<'a> {
@@ -269,6 +315,7 @@ impl<'a> Sql for Term<'a> {
             Term::Condition(t1, op, t2) => format!("{} {} {}", t1.sql(), op.sql(), t2.sql()),
             Term::Null => "".to_string(),
             Term::Parens(t) => format!("({})", t.sql()),
+            Term::Subquery(q) => format!("({})", q.sql()),
         }
     }
 }
@@ -386,6 +433,46 @@ pub fn is_null<'a>(column: &'a str) -> Term<'a> {
 /// Example: is_not_null("created_at") => "created_at IS NOT NULL"
 pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
     Term::Atom(Box::leak(format!("{} IS NOT NULL", column).into_boxed_str()))
+}
+
+// Nested query helpers
+
+/// Creates an EXISTS condition with a subquery
+/// Example: exists(subquery) => "EXISTS (SELECT ...)"
+pub fn exists<'a>(subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("EXISTS ({})", subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates a NOT EXISTS condition with a subquery
+/// Example: not_exists(subquery) => "NOT EXISTS (SELECT ...)"
+pub fn not_exists<'a>(subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("NOT EXISTS ({})", subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates an IN condition with a subquery
+/// Example: in_subquery("user_id", subquery) => "user_id IN (SELECT ...)"
+pub fn in_subquery<'a>(column: &'a str, subquery: Query<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(column)),
+        Op::In,
+        Box::new(Term::Subquery(Box::new(subquery)))
+    )
+}
+
+/// Creates a comparison with ANY (subquery)
+/// Example: any("price", Op::GreaterThan, subquery) => "price > ANY (SELECT ...)"
+pub fn any<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("{} {} ANY ({})", column, op.sql(), subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates a comparison with ALL (subquery)
+/// Example: all("price", Op::LessThan, subquery) => "price < ALL (SELECT ...)"
+pub fn all<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("{} {} ALL ({})", column, op.sql(), subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
 }
 
 // PostgreSQL parameter helpers
@@ -510,6 +597,52 @@ impl<'a> Sql for OrderBy<'a> {
 }
 
 
+/// The FromSource enum represents the source of data in a FROM clause.
+/// It can be either a simple table name or a subquery with an alias.
+///
+/// # Examples
+///
+/// Simple table:
+/// ```
+/// use squeal::*;
+/// let from = FromSource::Table("users");
+/// assert_eq!(from.sql(), "users");
+/// ```
+///
+/// Subquery with alias:
+/// ```
+/// use squeal::*;
+/// let subquery = Query {
+///     select: Some(Select::new(Columns::Star)),
+///     from: Some(FromSource::Table("users")),
+///     where_clause: None,
+///     group_by: None,
+///     having: None,
+///     order_by: None,
+///     limit: None,
+///     offset: None,
+///     for_update: false,
+/// };
+/// let from = FromSource::Subquery(Box::new(subquery), "u");
+/// assert_eq!(from.sql(), "(SELECT * FROM users) AS u");
+/// ```
+#[derive(Clone)]
+pub enum FromSource<'a> {
+    /// A simple table name
+    Table(&'a str),
+    /// A subquery with an alias
+    Subquery(Box<Query<'a>>, &'a str),
+}
+
+impl<'a> Sql for FromSource<'a> {
+    fn sql(&self) -> String {
+        match self {
+            FromSource::Table(table) => table.to_string(),
+            FromSource::Subquery(query, alias) => format!("({}) AS {}", query.sql(), alias),
+        }
+    }
+}
+
 /// The Query struct is the top-level object that represents a query.
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
@@ -519,7 +652,7 @@ pub struct Query<'a> {
     /// The select clause.
     pub select: Option<Select<'a>>,
     /// The table name for the select clause.
-    pub from: Option<&'a str>,
+    pub from: Option<FromSource<'a>>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
     /// The columns to group by, if any.
@@ -543,7 +676,7 @@ pub struct QueryBuilder<'a> {
     /// The select clause
     pub select: Option<Select<'a>>,
     /// The table to select from
-    pub from: Option<&'a str>,
+    pub from: Option<FromSource<'a>>,
     /// The WHERE clause conditions
     pub where_clause: Option<Term<'a>>,
     /// The columns to GROUP BY
@@ -594,7 +727,7 @@ impl<'a> QueryBuilder<'a> {
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
-            from: self.from,
+            from: self.from.clone(),
             where_clause: self.where_clause.clone(),
             group_by: self.group_by.clone(),
             having: self.having.clone(),
@@ -617,6 +750,34 @@ impl<'a> QueryBuilder<'a> {
         self.select = Some(Select::new(Columns::Selected(cols)));
         self
     }
+
+    /// Sets the SELECT clause with expressions (columns and/or subqueries)
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+    ///     from: Some(FromSource::Table("orders")),
+    ///     where_clause: None,
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.select_expressions(vec![
+    ///     SelectExpression::Column("id"),
+    ///     SelectExpression::Subquery(Box::new(subquery), Some("order_count"))
+    /// ]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT id, (SELECT COUNT(*) FROM orders) AS order_count FROM users");
+    /// ```
+    pub fn select_expressions(&'a mut self, exprs: Vec<SelectExpression<'a>>) -> &'a mut QueryBuilder<'a> {
+        self.select = Some(Select::new(Columns::Expressions(exprs)));
+        self
+    }
     /// Sets the table to SELECT FROM
     ///
     /// # Example
@@ -627,7 +788,32 @@ impl<'a> QueryBuilder<'a> {
     /// assert_eq!(query.sql(), "SELECT * FROM products");
     /// ```
     pub fn from(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
-        self.from = Some(table);
+        self.from = Some(FromSource::Table(table));
+        self
+    }
+
+    /// Sets a subquery as the FROM source
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Star)),
+    ///     from: Some(FromSource::Table("users")),
+    ///     where_clause: None,
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from_subquery(subquery, "u").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM (SELECT * FROM users) AS u");
+    /// ```
+    pub fn from_subquery(&'a mut self, subquery: Query<'a>, alias: &'a str) -> &'a mut QueryBuilder<'a> {
+        self.from = Some(FromSource::Subquery(Box::new(subquery), alias));
         self
     }
     /// Sets the WHERE clause
@@ -764,7 +950,7 @@ impl<'a> Sql for Query<'a> {
             result.push_str(&format!("SELECT {}", select.sql()));
         }
         if let Some(from) = &self.from {
-            result.push_str(&format!(" FROM {}", from));
+            result.push_str(&format!(" FROM {}", from.sql()));
         }
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
@@ -1668,7 +1854,7 @@ mod tests {
     fn query() {
         let result = Query {
             select: Some(Select::new(Columns::Star)),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -1689,7 +1875,7 @@ mod tests {
     fn query2() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -1710,7 +1896,7 @@ mod tests {
     fn query3() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -1728,7 +1914,7 @@ mod tests {
     fn query4() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::Equals,
@@ -1826,7 +2012,7 @@ mod tests {
     fn limit_check() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -1843,7 +2029,7 @@ mod tests {
     fn offset_check() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -1895,7 +2081,7 @@ mod tests {
     fn test_group_by_having() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["County", "sum(paid)"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: Some(vec!["County"]),
             having: Some(Having::new(
@@ -2141,5 +2327,316 @@ mod tests {
         builder.table("new_table".to_string());
         let result = builder.build_create_table().sql();
         assert_eq!(result, "CREATE TABLE new_table ()");
+    }
+
+    // Tests for nested SELECT queries (Issue #7)
+
+    // Test subquery in WHERE clause with IN operator
+    #[test]
+    fn test_subquery_in_where_with_in() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["user_id"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = in_subquery("id", subquery).sql();
+        assert_eq!(result, "id IN (SELECT user_id FROM orders)");
+    }
+
+    // Test subquery in WHERE clause using Term::Subquery directly
+    #[test]
+    fn test_subquery_in_where_direct() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["user_id"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = Term::Subquery(Box::new(subquery)).sql();
+        assert_eq!(result, "(SELECT user_id FROM orders)");
+    }
+
+    // Test EXISTS operator
+    #[test]
+    fn test_exists_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = exists(subquery).sql();
+        assert_eq!(result, "EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)");
+    }
+
+    // Test NOT EXISTS operator
+    #[test]
+    fn test_not_exists_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("banned_users")),
+            where_clause: Some(eq("banned_users.id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = not_exists(subquery).sql();
+        assert_eq!(result, "NOT EXISTS (SELECT 1 FROM banned_users WHERE banned_users.id = users.id)");
+    }
+
+    // Test ANY operator
+    #[test]
+    fn test_any_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["price"]))),
+            from: Some(FromSource::Table("competitor_prices")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = any("our_price", Op::LessThan, subquery).sql();
+        assert_eq!(result, "our_price < ANY (SELECT price FROM competitor_prices)");
+    }
+
+    // Test ALL operator
+    #[test]
+    fn test_all_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["price"]))),
+            from: Some(FromSource::Table("competitor_prices")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = all("our_price", Op::LessThan, subquery).sql();
+        assert_eq!(result, "our_price < ALL (SELECT price FROM competitor_prices)");
+    }
+
+    // Test subquery in FROM clause
+    #[test]
+    fn test_subquery_in_from_clause() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = FromSource::Subquery(Box::new(subquery), "active_users").sql();
+        assert_eq!(result, "(SELECT * FROM users WHERE active = true) AS active_users");
+    }
+
+    // Test subquery in FROM clause with QueryBuilder
+    #[test]
+    fn test_subquery_in_from_with_builder() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let mut qb = Q();
+        let result = qb.select(vec!["*"])
+            .from_subquery(subquery, "active_users")
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM (SELECT * FROM users WHERE active = true) AS active_users");
+    }
+
+    // Test subquery in SELECT clause
+    #[test]
+    fn test_subquery_in_select_clause() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let expr = SelectExpression::Subquery(Box::new(subquery), Some("order_count"));
+        assert_eq!(expr.sql(), "(SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count");
+    }
+
+    // Test subquery in SELECT clause without alias
+    #[test]
+    fn test_subquery_in_select_clause_no_alias() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let expr = SelectExpression::Subquery(Box::new(subquery), None);
+        assert_eq!(expr.sql(), "(SELECT COUNT(*) FROM orders)");
+    }
+
+    // Test full query with subquery in SELECT clause using QueryBuilder
+    #[test]
+    fn test_full_query_with_select_subquery() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let mut qb = Q();
+        let result = qb.select_expressions(vec![
+            SelectExpression::Column("id"),
+            SelectExpression::Column("name"),
+            SelectExpression::Subquery(Box::new(subquery), Some("order_count"))
+        ])
+            .from("users")
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT id, name, (SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count FROM users");
+    }
+
+    // Test Columns::Expressions with multiple columns
+    #[test]
+    fn test_columns_expressions() {
+        let cols = Columns::Expressions(vec![
+            SelectExpression::Column("id"),
+            SelectExpression::Column("name"),
+            SelectExpression::Column("email"),
+        ]);
+        assert_eq!(cols.sql(), "id, name, email");
+    }
+
+    // Test complex nested query: subquery in WHERE with EXISTS and subquery in FROM
+    #[test]
+    fn test_complex_nested_query() {
+        let exists_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "u.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let from_subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let mut qb = Q();
+        let result = qb.select(vec!["*"])
+            .from_subquery(from_subquery, "u")
+            .where_(exists(exists_subquery))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u WHERE EXISTS (SELECT 1 FROM orders WHERE orders.user_id = u.id)");
+    }
+
+    // Test nested subquery (subquery within subquery in WHERE)
+    #[test]
+    fn test_nested_subquery_in_where() {
+        let inner_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["category_id"]))),
+            from: Some(FromSource::Table("popular_categories")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let outer_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["product_id"]))),
+            from: Some(FromSource::Table("products")),
+            where_clause: Some(in_subquery("category_id", inner_subquery)),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let result = in_subquery("id", outer_subquery).sql();
+        assert_eq!(result, "id IN (SELECT product_id FROM products WHERE category_id IN (SELECT category_id FROM popular_categories))");
+    }
+
+    // Test Op enum new variants
+    #[test]
+    fn test_op_exists() {
+        assert_eq!(Op::Exists.sql(), "EXISTS");
+    }
+
+    #[test]
+    fn test_op_not_exists() {
+        assert_eq!(Op::NotExists.sql(), "NOT EXISTS");
+    }
+
+    #[test]
+    fn test_op_any() {
+        assert_eq!(Op::Any.sql(), "ANY");
+    }
+
+    #[test]
+    fn test_op_all() {
+        assert_eq!(Op::All.sql(), "ALL");
     }
 }
