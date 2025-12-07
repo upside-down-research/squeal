@@ -50,6 +50,25 @@ rust-test:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'  # Run for all changes to a merge request's source branch
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH       # Run for all changes to the default branch
 
+rust-clippy:
+  extends: .rust-default
+  stage: test
+  script:
+    - cargo clippy --all-targets -- --deny warnings
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+rust-fmt:
+  extends: .rust-default
+  stage: test
+  script:
+    - cargo fmt --all -- --check
+  rules:
+    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+
 pages:
   stage: test
   script:

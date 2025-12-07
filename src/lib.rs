@@ -174,7 +174,7 @@ impl<'a> Select<'a> {
     /// let select = Select::new(Columns::Star);
     /// assert_eq!(select.sql(), "*");
     /// ```
-    pub fn new(c: Columns) -> Select {
+    pub fn new(c: Columns<'a>) -> Select<'a> {
         Select { cols: c }
     }
 }
@@ -727,7 +727,7 @@ impl<'a> QueryBuilder<'a> {
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
-            from: self.from,
+from: self.from.clone(),
             where_clause: self.where_clause.clone(),
             group_by: self.group_by.clone(),
             having: self.having.clone(),
@@ -1016,9 +1016,9 @@ impl<'a> Sql for DropTable<'a> {
 
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
-pub struct TableBuilder {
+pub struct TableBuilder<'a> {
     /// The table name
-    pub table: String,
+    pub table: &'a str,
     /// Column definitions (each inner Vec represents one column definition)
     pub columns: Vec<Vec<String>>,
 }
@@ -1032,7 +1032,7 @@ pub fn T<'a>(s: &'a str) -> TableBuilder<'a> {
     }
 }
 
-impl TableBuilder {
+impl<'a> TableBuilder<'a> {
     /// Builds a CREATE TABLE statement
     ///
     /// # Example
@@ -1042,7 +1042,7 @@ impl TableBuilder {
     /// let create = tb.column("id", "serial", vec![]).build_create_table();
     /// assert_eq!(create.sql(), "CREATE TABLE users (id serial)");
     /// ```
-    pub fn build_create_table(&self) -> CreateTable<'_> {
+    pub fn build_create_table(&self) -> CreateTable<'a> {
         let mut table_cols = Vec::new();
         for c in &self.columns {
             table_cols.push(c.join(" "));
@@ -1061,7 +1061,7 @@ impl TableBuilder {
     /// let drop = tb.build_drop_table();
     /// assert_eq!(drop.sql(), "DROP TABLE users");
     /// ```
-    pub fn build_drop_table(&self) -> DropTable<'_> {
+    pub fn build_drop_table(&self) -> DropTable<'a> {
         DropTable {
             table: self.table,
         }
@@ -1072,12 +1072,12 @@ impl TableBuilder {
     /// ```
     /// use squeal::*;
     /// let mut builder = T("old_name");
-    /// builder.table("new_name".to_string());
+    /// builder.table("new_name");
     /// let create = builder.build_create_table();
     /// assert_eq!(create.sql(), "CREATE TABLE new_name ()");
     /// ```
-    pub fn table(&mut self, table: String) -> &mut TableBuilder {
-        self.table = table.clone();
+    pub fn table(&mut self, table: &'a str) -> &mut TableBuilder<'a> {
+        self.table = table;
         self
     }
     /// Adds a column definition
@@ -1090,7 +1090,7 @@ impl TableBuilder {
     ///     .build_create_table();
     /// assert_eq!(create.sql(), "CREATE TABLE users (id serial PRIMARY KEY)");
     /// ```
-    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder {
+    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder<'a> {
         let mut col = vec![column, datatype];
         col.extend(other);
         let str_cols = col.iter().map(|s| s.to_string()).collect();
@@ -1205,7 +1205,7 @@ impl<'a> InsertBuilder<'a> {
     /// let insert = ib.columns(vec!["name"]).values(vec!["'Alice'"]).build();
     /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice')");
     /// ```
-    pub fn build(&self) -> Insert<'_> {
+    pub fn build(&self) -> Insert<'a> {
         Insert {
             table: self.table,
             columns: self.columns.clone(),
@@ -1444,7 +1444,7 @@ impl<'a> UpdateBuilder<'a> {
     /// let update = ub.set(vec![("name", "'Eve'")]).build();
     /// assert_eq!(update.sql(), "UPDATE users SET name = 'Eve'");
     /// ```
-    pub fn build(&self) -> Update<'_> {
+    pub fn build(&self) -> Update<'a> {
         Update {
             table: self.table,
             columns: self.columns.clone(),
@@ -1509,7 +1509,7 @@ impl <'a> DeleteBuilder<'a> {
     /// let delete = db.where_(eq("id", "10")).build();
     /// assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 10");
     /// ```
-    pub fn build(&self) -> Delete<'_> {
+    pub fn build(&self) -> Delete<'a> {
         Delete {
             table: self.table,
             where_clause: self.where_clause.clone(),
