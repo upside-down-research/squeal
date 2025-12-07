@@ -2040,3 +2040,110 @@ fn test_on_conflict_with_multiple_rows() {
         .build();
     assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice'), ('bob@example.com', 'Bob') ON CONFLICT (email) DO NOTHING");
 }
+
+#[test]
+fn test_insert_single_column() {
+    let insert = Insert {
+        table: "users",
+        columns: vec!["name"],
+        source: InsertSource::Values(vec![vec!["'Alice'"]]),
+        on_conflict: None,
+        returning: None,
+    };
+    assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice')");
+}
+
+#[test]
+fn test_insert_builder_columns_method() {
+    let mut ib = I("users");
+    let insert = ib.columns(vec!["name", "email", "age"])
+        .values(vec!["'Test'", "'test@example.com'", "25"])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO users (name, email, age) VALUES ('Test', 'test@example.com', 25)");
+}
+
+#[test]
+fn test_on_conflict_single_update() {
+    let on_conflict = OnConflict::DoUpdate(vec!["id"], vec![("status", "'active'")]);
+    assert_eq!(on_conflict.sql(), "ON CONFLICT (id) DO UPDATE SET status = 'active'");
+}
+
+#[test]
+fn test_insert_with_select_and_on_conflict() {
+    let select_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("temp_users")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let insert = Insert {
+        table: "users",
+        columns: vec!["id", "name"],
+        source: InsertSource::Select(Box::new(select_query)),
+        on_conflict: Some(OnConflict::DoNothing(vec!["id"])),
+        returning: None,
+    };
+    assert_eq!(insert.sql(), "INSERT INTO users (id, name) SELECT id, name FROM temp_users ON CONFLICT (id) DO NOTHING");
+}
+
+#[test]
+fn test_query_with_cte_and_joins() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["user_id", "total"]), None)),
+        from: Some(FromSource::Table("orders")),
+        joins: vec![],
+        where_clause: None,
+        group_by: Some(vec!["user_id"]),
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("user_totals", cte_query)
+        .select(vec!["u.name", "ut.total"])
+        .from("users u")
+        .inner_join("user_totals ut", eq("u.id", "ut.user_id"))
+        .where_(gt("ut.total", "100"))
+        .order_by(vec![OrderedColumn::Desc("ut.total"), OrderedColumn::Asc("u.name")])
+        .limit(10)
+        .build();
+    assert_eq!(query.sql(), "WITH user_totals AS (SELECT user_id, total FROM orders GROUP BY user_id) SELECT u.name, ut.total FROM users u INNER JOIN user_totals ut ON u.id = ut.user_id WHERE ut.total > 100 ORDER BY ut.total DESC, u.name ASC LIMIT 10");
+}
+
+#[test]
+fn test_case_expression_with_else() {
+    let case_expr = Term::Case(CaseExpression {
+        when_thens: vec![
+            WhenThen {
+                when: eq("status", "'active'"),
+                then: Term::Atom("1"),
+            },
+            WhenThen {
+                when: eq("status", "'pending'"),
+                then: Term::Atom("2"),
+            },
+        ],
+        else_term: Some(Box::new(Term::Atom("0"))),
+    });
+    assert_eq!(case_expr.sql(), "CASE WHEN status = 'active' THEN 1 WHEN status = 'pending' THEN 2 ELSE 0 END");
+}
+
+#[test]
+fn test_substring_with_from_and_for() {
+    let result = substring(
+        Term::Atom("name"),
+        Some(Term::Atom("1")),
+        Some(Term::Atom("5"))
+    ).sql();
+    assert_eq!(result, "SUBSTRING(name FROM 1 FOR 5)");
+}
