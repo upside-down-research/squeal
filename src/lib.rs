@@ -17,7 +17,7 @@
 //!
 //! let result = Query {
 //!      select: Some(Select::new(Columns::Star)),
-//!      from: Some("table"),
+//!      from: Some(FromSource::Table("table")),
 //!      where_clause: Some(Term::Condition(
 //!        Box::new(Term::Atom("a")),
 //!      Op::O("<>"),
@@ -70,7 +70,40 @@ pub trait Sql {
 /// The Build trait is used by the XBuilder structs to build the X struct.
 /// This is a means of providing a nice factory/fluent interface.
 pub trait Build {
+    /// Builds the final struct from the builder
     fn build(&self) -> Self;
+}
+
+/// The Parameterized trait provides PostgreSQL parameter placeholder generation.
+/// Implemented by all query builder structs to provide consistent param() API.
+pub trait Parameterized {
+    /// Returns the next PostgreSQL parameter placeholder ($1, $2, $3, etc.)
+    /// Each builder maintains its own isolated counter.
+    fn param(&mut self) -> String;
+}
+
+/// A single expression in a SELECT clause
+#[derive(Clone)]
+pub enum SelectExpression<'a> {
+    /// A simple column name or expression
+    Column(&'a str),
+    /// A subquery with an optional alias
+    Subquery(Box<Query<'a>>, Option<&'a str>),
+}
+
+impl<'a> Sql for SelectExpression<'a> {
+    fn sql(&self) -> String {
+        match self {
+            SelectExpression::Column(col) => col.to_string(),
+            SelectExpression::Subquery(query, alias) => {
+                if let Some(a) = alias {
+                    format!("({}) AS {}", query.sql(), a)
+                } else {
+                    format!("({})", query.sql())
+                }
+            }
+        }
+    }
 }
 
 /// The Columns enum is used to specify which columns to select.
@@ -94,8 +127,12 @@ pub trait Build {
 /// ```
 #[derive(Clone)]
 pub enum Columns<'a> {
+    /// Wildcard selector (*)
     Star,
+    /// Specific column names
     Selected(Vec<&'a str>),
+    /// Mix of columns and subqueries
+    Expressions(Vec<SelectExpression<'a>>),
 }
 
 impl<'a> Sql for Columns<'a> {
@@ -103,6 +140,12 @@ impl<'a> Sql for Columns<'a> {
         match &self {
             Columns::Star => "*".to_string(),
             Columns::Selected(v) => v.join(", ").to_string(),
+            Columns::Expressions(exprs) => {
+                exprs.iter()
+                    .map(|e| e.sql())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+            }
         }
     }
 }
@@ -118,11 +161,20 @@ impl<'a> Sql for Columns<'a> {
 /// projection.
 #[derive(Clone)]
 pub struct Select<'a> {
+    /// The columns to select
     pub cols: Columns<'a>,
 }
 
 impl<'a> Select<'a> {
-    pub fn new(c: Columns<'a>) -> Select<'a> {
+    /// Creates a new Select with the given columns
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let select = Select::new(Columns::Star);
+    /// assert_eq!(select.sql(), "*");
+    /// ```
+    pub fn new(c: Columns) -> Select {
         Select { cols: c }
     }
 }
@@ -139,9 +191,35 @@ impl<'a> Sql for Select<'a> {
 /// The Op::O variant is an escape hatch to allow you to use any operator you want.
 #[derive(Clone)]
 pub enum Op<'a> {
+    /// Logical AND operator
     And,
+    /// Logical OR operator
     Or,
+    /// Equality operator (=)
     Equals,
+    /// Not equals operator (!=)
+    NotEquals,
+    /// Greater than operator (>)
+    GreaterThan,
+    /// Less than operator (<)
+    LessThan,
+    /// Greater than or equal operator (>=)
+    GreaterOrEqual,
+    /// Less than or equal operator (<=)
+    LessOrEqual,
+    /// LIKE operator for pattern matching
+    Like,
+    /// IN operator for set membership
+    In,
+    /// EXISTS operator for subquery existence testing
+    Exists,
+    /// NOT EXISTS operator for subquery non-existence testing
+    NotExists,
+    /// ANY operator for comparing against any value in a subquery
+    Any,
+    /// ALL operator for comparing against all values in a subquery
+    All,
+    /// Custom operator escape hatch
     O(&'a str),
 }
 
@@ -151,6 +229,17 @@ impl<'a> Sql for Op<'a> {
             Op::And => "AND",
             Op::Or => "OR",
             Op::Equals => "=",
+            Op::NotEquals => "!=",
+            Op::GreaterThan => ">",
+            Op::LessThan => "<",
+            Op::GreaterOrEqual => ">=",
+            Op::LessOrEqual => "<=",
+            Op::Like => "LIKE",
+            Op::In => "IN",
+            Op::Exists => "EXISTS",
+            Op::NotExists => "NOT EXISTS",
+            Op::Any => "ANY",
+            Op::All => "ALL",
             Op::O(s) => s,
         }
             .to_string()
@@ -215,6 +304,8 @@ pub enum Term<'a> {
     Parens(Box<Term<'a>>),
     /// A null term.
     Null,
+    /// A subquery that can be used in WHERE clauses
+    Subquery(Box<Query<'a>>),
 }
 
 impl<'a> Sql for Term<'a> {
@@ -224,7 +315,214 @@ impl<'a> Sql for Term<'a> {
             Term::Condition(t1, op, t2) => format!("{} {} {}", t1.sql(), op.sql(), t2.sql()),
             Term::Null => "".to_string(),
             Term::Parens(t) => format!("({})", t.sql()),
+            Term::Subquery(q) => format!("({})", q.sql()),
         }
+    }
+}
+
+// Helper functions for building WHERE clauses ergonomically
+
+/// Creates an equality condition (=)
+pub fn eq<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::Equals,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a not-equals condition (!=)
+pub fn ne<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::NotEquals,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a greater-than condition (>)
+pub fn gt<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::GreaterThan,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a less-than condition (<)
+pub fn lt<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::LessThan,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a greater-than-or-equal condition (>=)
+pub fn gte<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::GreaterOrEqual,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a less-than-or-equal condition (<=)
+pub fn lte<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::LessOrEqual,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Creates a LIKE condition
+pub fn like<'a>(left: &'a str, right: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(left)),
+        Op::Like,
+        Box::new(Term::Atom(right))
+    )
+}
+
+/// Combines two terms with AND
+pub fn and<'a>(left: Term<'a>, right: Term<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(left),
+        Op::And,
+        Box::new(right)
+    )
+}
+
+/// Combines two terms with OR
+pub fn or<'a>(left: Term<'a>, right: Term<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(left),
+        Op::Or,
+        Box::new(right)
+    )
+}
+
+/// Wraps a term in parentheses
+pub fn parens<'a>(term: Term<'a>) -> Term<'a> {
+    Term::Parens(Box::new(term))
+}
+
+// Convenience functions for common SQL patterns
+
+/// Creates an IN clause
+/// Example: in_("status", vec!["'active'", "'pending'"]) => "status IN ('active', 'pending')"
+pub fn in_<'a>(column: &'a str, values: Vec<&'a str>) -> Term<'a> {
+    let values_str = values.join(", ");
+    Term::Atom(Box::leak(format!("{} IN ({})", column, values_str).into_boxed_str()))
+}
+
+/// Creates a BETWEEN clause
+/// Example: between("age", "18", "65") => "age BETWEEN 18 AND 65"
+pub fn between<'a>(column: &'a str, low: &'a str, high: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} BETWEEN {} AND {}", column, low, high).into_boxed_str()))
+}
+
+/// Creates an IS NULL condition
+/// Example: is_null("deleted_at") => "deleted_at IS NULL"
+pub fn is_null<'a>(column: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} IS NULL", column).into_boxed_str()))
+}
+
+/// Creates an IS NOT NULL condition
+/// Example: is_not_null("created_at") => "created_at IS NOT NULL"
+pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
+    Term::Atom(Box::leak(format!("{} IS NOT NULL", column).into_boxed_str()))
+}
+
+// Nested query helpers
+
+/// Creates an EXISTS condition with a subquery
+/// Example: exists(subquery) => "EXISTS (SELECT ...)"
+pub fn exists<'a>(subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("EXISTS ({})", subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates a NOT EXISTS condition with a subquery
+/// Example: not_exists(subquery) => "NOT EXISTS (SELECT ...)"
+pub fn not_exists<'a>(subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("NOT EXISTS ({})", subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates an IN condition with a subquery
+/// Example: in_subquery("user_id", subquery) => "user_id IN (SELECT ...)"
+pub fn in_subquery<'a>(column: &'a str, subquery: Query<'a>) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(column)),
+        Op::In,
+        Box::new(Term::Subquery(Box::new(subquery)))
+    )
+}
+
+/// Creates a comparison with ANY (subquery)
+/// Example: any("price", Op::GreaterThan, subquery) => "price > ANY (SELECT ...)"
+pub fn any<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("{} {} ANY ({})", column, op.sql(), subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+/// Creates a comparison with ALL (subquery)
+/// Example: all("price", Op::LessThan, subquery) => "price < ALL (SELECT ...)"
+pub fn all<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
+    let sql = format!("{} {} ALL ({})", column, op.sql(), subquery.sql());
+    Term::Atom(Box::leak(sql.into_boxed_str()))
+}
+
+// PostgreSQL parameter helpers
+
+/// Returns a PostgreSQL parameter placeholder
+/// Example: p(1) => "$1", p(2) => "$2"
+pub fn p(n: usize) -> String {
+    format!("${}", n)
+}
+
+/// PostgreSQL parameter counter for auto-sequencing
+/// Automatically generates $1, $2, $3, etc. as you call seq()
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let mut pg = PgParams::new();
+/// let p1 = pg.seq();  // "$1"
+/// let p2 = pg.seq();  // "$2"
+/// let mut qb = Q();
+/// let query = qb
+///     .select(vec!["*"])
+///     .from("users")
+///     .where_(and(
+///         eq("id", &p1),
+///         eq("status", &p2)
+///     ))
+///     .build();
+/// assert_eq!(query.sql(), "SELECT * FROM users WHERE id = $1 AND status = $2");
+/// ```
+pub struct PgParams {
+    count: usize,
+}
+
+impl PgParams {
+    /// Creates a new parameter counter starting at 0
+    pub fn new() -> Self {
+        PgParams { count: 0 }
+    }
+
+    /// Returns the next parameter placeholder ($1, $2, $3, etc.)
+    pub fn seq(&mut self) -> String {
+        self.count += 1;
+        format!("${}", self.count)
+    }
+}
+
+impl Default for PgParams {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -234,10 +532,19 @@ impl<'a> Sql for Term<'a> {
 /// It is constructed with a Term, similar to a Where clause.
 #[derive(Clone)]
 pub struct Having<'a> {
+    /// The condition for the HAVING clause
     pub term: Term<'a>,
 }
 
 impl<'a> Having<'a> {
+    /// Creates a new Having clause with the given term
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let having = Having::new(gt("count", "5"));
+    /// assert_eq!(having.sql(), "count > 5");
+    /// ```
     pub fn new(t: Term<'a>) -> Having<'a> {
         Having { term: t }
     }
@@ -255,7 +562,9 @@ impl<'a> Sql for Having<'a> {
 /// It is used to specify the columns, and optionally, whether they are ascending or descending.
 #[derive(Clone)]
 pub enum OrderedColumn<'a> {
+    /// Ascending order
     Asc(&'a str),
+    /// Descending order
     Desc(&'a str),
 }
 
@@ -265,6 +574,7 @@ pub enum OrderedColumn<'a> {
 /// Each column can be ascending or descending
 #[derive(Clone)]
 pub struct OrderBy<'a> {
+    /// List of columns with their sort order
     pub columns: Vec<OrderedColumn<'a>>,
 }
 
@@ -287,6 +597,52 @@ impl<'a> Sql for OrderBy<'a> {
 }
 
 
+/// The FromSource enum represents the source of data in a FROM clause.
+/// It can be either a simple table name or a subquery with an alias.
+///
+/// # Examples
+///
+/// Simple table:
+/// ```
+/// use squeal::*;
+/// let from = FromSource::Table("users");
+/// assert_eq!(from.sql(), "users");
+/// ```
+///
+/// Subquery with alias:
+/// ```
+/// use squeal::*;
+/// let subquery = Query {
+///     select: Some(Select::new(Columns::Star)),
+///     from: Some(FromSource::Table("users")),
+///     where_clause: None,
+///     group_by: None,
+///     having: None,
+///     order_by: None,
+///     limit: None,
+///     offset: None,
+///     for_update: false,
+/// };
+/// let from = FromSource::Subquery(Box::new(subquery), "u");
+/// assert_eq!(from.sql(), "(SELECT * FROM users) AS u");
+/// ```
+#[derive(Clone)]
+pub enum FromSource<'a> {
+    /// A simple table name
+    Table(&'a str),
+    /// A subquery with an alias
+    Subquery(Box<Query<'a>>, &'a str),
+}
+
+impl<'a> Sql for FromSource<'a> {
+    fn sql(&self) -> String {
+        match self {
+            FromSource::Table(table) => table.to_string(),
+            FromSource::Subquery(query, alias) => format!("({}) AS {}", query.sql(), alias),
+        }
+    }
+}
+
 /// The Query struct is the top-level object that represents a query.
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
@@ -296,14 +652,20 @@ pub struct Query<'a> {
     /// The select clause.
     pub select: Option<Select<'a>>,
     /// The table name for the select clause.
-    pub from: Option<&'a str>,
+    pub from: Option<FromSource<'a>>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
+    /// The columns to group by, if any.
     pub group_by: Option<Vec<&'a str>>,
+    /// The having clause conditions, if any.
     pub having: Option<Having<'a>>,
+    /// The order by clause, if any.
     pub order_by: Option<OrderBy<'a>>,
+    /// The maximum number of rows to return.
     pub limit: Option<u64>,
+    /// The number of rows to skip.
     pub offset: Option<u64>,
+    /// Whether to lock rows with FOR UPDATE.
     pub for_update: bool,
 }
 
@@ -311,15 +673,26 @@ pub struct Query<'a> {
 /// It is not intended to be used directly, but rather through the Q() function.
 /// See the integration_test.rs for an example of usage.
 pub struct QueryBuilder<'a> {
+    /// The select clause
     pub select: Option<Select<'a>>,
-    pub from: Option<&'a str>,
+    /// The table to select from
+    pub from: Option<FromSource<'a>>,
+    /// The WHERE clause conditions
     pub where_clause: Option<Term<'a>>,
+    /// The columns to GROUP BY
     pub group_by: Option<Vec<&'a str>>,
+    /// The HAVING clause conditions
     pub having: Option<Having<'a>>,
+    /// The ORDER BY clause
     pub order_by: Option<OrderBy<'a>>,
+    /// The LIMIT value
     pub limit: Option<u64>,
+    /// The OFFSET value
     pub offset: Option<u64>,
+    /// Whether to use FOR UPDATE
     pub for_update: bool,
+    /// PostgreSQL parameter counter
+    pub params: PgParams,
 }
 
 /// The Q function is a fluent interface for building a Query.
@@ -337,10 +710,20 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
         limit: None,
         offset: None,
         for_update: false,
+        params: PgParams::new(),
     }
 }
 
 impl<'a> QueryBuilder<'a> {
+    /// Builds the final Query from this builder
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users");
+    /// ```
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
@@ -354,41 +737,208 @@ impl<'a> QueryBuilder<'a> {
             for_update: self.for_update,
         }
     }
+    /// Sets the columns to SELECT
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["id", "name"]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT id, name FROM users");
+    /// ```
     pub fn select(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.select = Some(Select::new(Columns::Selected(cols)));
         self
     }
-    pub fn from(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
-        self.from = Some(table);
+
+    /// Sets the SELECT clause with expressions (columns and/or subqueries)
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+    ///     from: Some(FromSource::Table("orders")),
+    ///     where_clause: None,
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.select_expressions(vec![
+    ///     SelectExpression::Column("id"),
+    ///     SelectExpression::Subquery(Box::new(subquery), Some("order_count"))
+    /// ]).from("users").build();
+    /// assert_eq!(query.sql(), "SELECT id, (SELECT COUNT(*) FROM orders) AS order_count FROM users");
+    /// ```
+    pub fn select_expressions(&'a mut self, exprs: Vec<SelectExpression<'a>>) -> &'a mut QueryBuilder<'a> {
+        self.select = Some(Select::new(Columns::Expressions(exprs)));
         self
     }
+    /// Sets the table to SELECT FROM
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("products").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM products");
+    /// ```
+    pub fn from(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
+        self.from = Some(FromSource::Table(table));
+        self
+    }
+
+    /// Sets a subquery as the FROM source
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Star)),
+    ///     from: Some(FromSource::Table("users")),
+    ///     where_clause: None,
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from_subquery(subquery, "u").build();
+    /// assert_eq!(query.sql(), "SELECT * FROM (SELECT * FROM users) AS u");
+    /// ```
+    pub fn from_subquery(&'a mut self, subquery: Query<'a>, alias: &'a str) -> &'a mut QueryBuilder<'a> {
+        self.from = Some(FromSource::Subquery(Box::new(subquery), alias));
+        self
+    }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").where_(eq("id", "1")).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users WHERE id = 1");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+
+    /// Sets WHERE clause only if the Option contains Some value
+    /// Useful for conditional/dynamic query building
+    pub fn where_opt(&'a mut self, term: Option<Term<'a>>) -> &'a mut QueryBuilder<'a> {
+        if let Some(t) = term {
+            self.where_clause = Some(t);
+        }
+        self
+    }
+
+    /// Adds a condition to the WHERE clause with AND
+    /// If no WHERE clause exists yet, this becomes the first condition
+    /// Otherwise, it ANDs the new condition with the existing one
+    pub fn and_where(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        match &self.where_clause {
+            None => self.where_clause = Some(term),
+            Some(existing) => {
+                self.where_clause = Some(Term::Condition(
+                    Box::new(existing.clone()),
+                    Op::And,
+                    Box::new(term)
+                ));
+            }
+        }
+        self
+    }
+
+    /// Sets the GROUP BY clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["category", "count(*)"]).from("products").group_by(vec!["category"]).build();
+    /// assert_eq!(query.sql(), "SELECT category, count(*) FROM products GROUP BY category");
+    /// ```
     pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.group_by = Some(cols);
         self
     }
+    /// Sets the HAVING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["category", "count(*)"]).from("products").group_by(vec!["category"]).having(gt("count(*)", "5")).build();
+    /// assert_eq!(query.sql(), "SELECT category, count(*) FROM products GROUP BY category HAVING count(*) > 5");
+    /// ```
     pub fn having(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.having = Some(Having::new(term));
         self
     }
+    /// Sets the ORDER BY clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").order_by(vec![OrderedColumn::Desc("created_at")]).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users ORDER BY created_at DESC");
+    /// ```
     pub fn order_by(&'a mut self, cols: Vec<OrderedColumn<'a>>) -> &'a mut QueryBuilder<'a> {
         self.order_by = Some(OrderBy { columns: cols });
         self
     }
+    /// Sets the LIMIT clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").limit(10).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users LIMIT 10");
+    /// ```
     pub fn limit(&'a mut self, limit: u64) -> &'a mut QueryBuilder<'a> {
         self.limit = Some(limit);
         self
     }
+    /// Sets the OFFSET clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").offset(20).build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users OFFSET 20");
+    /// ```
     pub fn offset(&'a mut self, offset: u64) -> &'a mut QueryBuilder<'a> {
         self.offset = Some(offset);
         self
     }
+    /// Adds FOR UPDATE to lock selected rows
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["*"]).from("users").for_update().build();
+    /// assert_eq!(query.sql(), "SELECT * FROM users FOR UPDATE");
+    /// ```
     pub fn for_update(&'a mut self) -> &'a mut QueryBuilder<'a> {
         self.for_update = true;
         self
+    }
+}
+
+impl<'a> Parameterized for QueryBuilder<'a> {
+    fn param(&mut self) -> String {
+        self.params.seq()
     }
 }
 
@@ -400,7 +950,7 @@ impl<'a> Sql for Query<'a> {
             result.push_str(&format!("SELECT {}", select.sql()));
         }
         if let Some(from) = &self.from {
-            result.push_str(&format!(" FROM {}", from));
+            result.push_str(&format!(" FROM {}", from.sql()));
         }
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
@@ -429,8 +979,9 @@ impl<'a> Sql for Query<'a> {
 
 /// CreateTable is used to specify a create table query.
 pub struct CreateTable<'a> {
+    /// The name of the table to create
     pub table: &'a str,
-    /// The columns to insert. Note that they must be syntactically correct.
+    /// The columns to create. Note that they must be syntactically correct.
     pub columns: Vec<String>,
 }
 
@@ -452,6 +1003,7 @@ impl<'a> Sql for CreateTable<'a> {
 
 /// DropTable is used to specify a drop table query.
 pub struct DropTable<'a> {
+    /// The name of the table to drop
     pub table: &'a str,
 }
 
@@ -464,8 +1016,10 @@ impl<'a> Sql for DropTable<'a> {
 
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
-pub struct TableBuilder<'a> {
-    pub table: &'a str,
+pub struct TableBuilder {
+    /// The table name
+    pub table: String,
+    /// Column definitions (each inner Vec represents one column definition)
     pub columns: Vec<Vec<String>>,
 }
 
@@ -478,8 +1032,17 @@ pub fn T<'a>(s: &'a str) -> TableBuilder<'a> {
     }
 }
 
-impl<'a> TableBuilder<'a> {
-    pub fn build_create_table(&self) -> CreateTable<'a> {
+impl TableBuilder {
+    /// Builds a CREATE TABLE statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let create = tb.column("id", "serial", vec![]).build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE users (id serial)");
+    /// ```
+    pub fn build_create_table(&self) -> CreateTable<'_> {
         let mut table_cols = Vec::new();
         for c in &self.columns {
             table_cols.push(c.join(" "));
@@ -489,16 +1052,45 @@ impl<'a> TableBuilder<'a> {
             columns: table_cols,
         }
     }
-    pub fn build_drop_table(&self) -> DropTable<'a> {
+    /// Builds a DROP TABLE statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let drop = tb.build_drop_table();
+    /// assert_eq!(drop.sql(), "DROP TABLE users");
+    /// ```
+    pub fn build_drop_table(&self) -> DropTable<'_> {
         DropTable {
             table: self.table,
         }
     }
-    pub fn table(&mut self, table: &'a str) -> &mut TableBuilder<'a> {
-        self.table = table;
+    /// Changes the table name
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut builder = T("old_name");
+    /// builder.table("new_name".to_string());
+    /// let create = builder.build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE new_name ()");
+    /// ```
+    pub fn table(&mut self, table: String) -> &mut TableBuilder {
+        self.table = table.clone();
         self
     }
-    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder<'a> {
+    /// Adds a column definition
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut tb = T("users");
+    /// let create = tb.column("id", "serial", vec!["PRIMARY KEY"])
+    ///     .build_create_table();
+    /// assert_eq!(create.sql(), "CREATE TABLE users (id serial PRIMARY KEY)");
+    /// ```
+    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder {
         let mut col = vec![column, datatype];
         col.extend(other);
         let str_cols = col.iter().map(|s| s.to_string()).collect();
@@ -534,6 +1126,7 @@ pub struct Insert<'a> {
     pub columns: Vec<&'a str>,
     /// The values to insert.
     pub values: Vec<&'a str>,
+    /// Optional RETURNING clause columns
     pub returning: Option<Columns<'a>>,
 }
 
@@ -567,11 +1160,13 @@ impl<'a> Sql for Insert<'a> {
     }
 }
 
+/// Builder for constructing INSERT statements with a fluent interface
 pub struct InsertBuilder<'a> {
     table: &'a str,
     columns: Vec<&'a str>,
     values: Vec<&'a str>,
     returning: Option<Columns<'a>>,
+    params: PgParams,
 }
 
 /// Defines a fluent interface for building an Insert.
@@ -596,11 +1191,21 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
         columns: Vec::new(),
         values: Vec::new(),
         returning: None,
+        params: PgParams::new(),
     }
 }
 
 impl<'a> InsertBuilder<'a> {
-    pub fn build(&self) -> Insert<'a> {
+    /// Builds the final Insert statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Alice'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice')");
+    /// ```
+    pub fn build(&self) -> Insert<'_> {
         Insert {
             table: self.table,
             columns: self.columns.clone(),
@@ -608,21 +1213,54 @@ impl<'a> InsertBuilder<'a> {
             returning: self.returning.clone(),
         }
     }
+    /// Sets the columns to insert into
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name", "email"]).values(vec!["'Alice'", "'alice@example.com'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')");
+    /// ```
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
+    /// Sets the values to insert
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Bob'"]).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob')");
+    /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
+    /// Sets the RETURNING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name"]).values(vec!["'Charlie'"]).returning(Columns::Star).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Charlie') RETURNING *");
+    /// ```
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut InsertBuilder<'a> {
         self.returning = Some(columns);
         self
+    }
+}
+
+impl<'a> Parameterized for InsertBuilder<'a> {
+    fn param(&mut self) -> String {
+        self.params.seq()
     }
 }
 
@@ -682,6 +1320,7 @@ pub struct UpdateBuilder<'a> {
     from: Option<&'a str>,
     where_clause: Option<Term<'a>>,
     returning: Option<Columns<'a>>,
+    params: PgParams,
 }
 
 /// Defines a fluent interface for building an Update.
@@ -712,34 +1351,100 @@ pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
         from: None,
         where_clause: None,
         returning: None,
+        params: PgParams::new(),
     }
 }
 impl<'a> UpdateBuilder<'a> {
+    /// Sets column-value pairs for the UPDATE statement
+    /// This is more ergonomic than using separate columns() and values() methods
+    /// as it keeps column-value pairs together, preventing mismatches.
+    pub fn set(&'a mut self, pairs: Vec<(&'a str, &'a str)>) -> &'a mut UpdateBuilder<'a> {
+        for (col, val) in pairs {
+            self.columns.push(col);
+            self.values.push(val);
+        }
+        self
+    }
+
+    /// Sets the columns to update (use with values())
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.columns(vec!["name"]).values(vec!["'David'"]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET name = 'David'");
+    /// ```
     pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
+    /// Sets the values to update (use with columns())
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.columns(vec!["email"]).values(vec!["'new@example.com'"]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET email = 'new@example.com'");
+    /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
+    /// Sets the FROM clause for PostgreSQL UPDATE...FROM syntax
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("active", "false")]).from("banned").where_(eq("users.id", "banned.user_id")).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET active = false FROM banned WHERE users.id = banned.user_id");
+    /// ```
     pub fn from(&'a mut self, from: &'a str) -> &'a mut UpdateBuilder<'a> {
         self.from = Some(from);
         self
     }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("active", "false")]).where_(eq("id", "5")).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET active = false WHERE id = 5");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut UpdateBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
+    /// Sets the RETURNING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("status", "'active'")]).returning(Columns::Selected(vec!["id", "status"])).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET status = 'active' RETURNING id, status");
+    /// ```
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut UpdateBuilder<'a> {
         self.returning = Some(columns);
         self
     }
-    pub fn build(&self) -> Update<'a> {
+    /// Builds the final Update statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let update = ub.set(vec![("name", "'Eve'")]).build();
+    /// assert_eq!(update.sql(), "UPDATE users SET name = 'Eve'");
+    /// ```
+    pub fn build(&self) -> Update<'_> {
         Update {
             table: self.table,
             columns: self.columns.clone(),
@@ -749,10 +1454,25 @@ impl<'a> UpdateBuilder<'a> {
             returning: self.returning.clone(),
         }
     }
-
 }
 
+impl<'a> Parameterized for UpdateBuilder<'a> {
+    fn param(&mut self) -> String {
+        self.params.seq()
+    }
+}
 
+/// The Delete struct represents a DELETE statement
+///
+/// # Example
+/// ```
+/// use squeal::*;
+/// let delete = Delete {
+///     table: "users",
+///     where_clause: Some(eq("id", "123")),
+/// };
+/// assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 123");
+/// ```
 #[derive(Clone)]
 pub struct Delete<'a> {
     /// The table name for the delete clause.
@@ -774,21 +1494,45 @@ impl<'a> Sql for Delete<'a> {
 /// The DeleteBuilder struct is a fluent interface for building a Delete.
 /// It is not intended to be used directly, but rather through the D() function.
 /// See the integration_test.rs for an example of usage.
-///
 pub struct DeleteBuilder<'a> {
     table: &'a str,
     where_clause: Option<Term<'a>>,
+    params: PgParams,
 }
 impl <'a> DeleteBuilder<'a> {
-    pub fn build(&self) -> Delete<'a> {
+    /// Builds the final Delete statement
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut db = D("users");
+    /// let delete = db.where_(eq("id", "10")).build();
+    /// assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 10");
+    /// ```
+    pub fn build(&self) -> Delete<'_> {
         Delete {
             table: self.table,
             where_clause: self.where_clause.clone(),
         }
     }
+    /// Sets the WHERE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut db = D("users");
+    /// let delete = db.where_(eq("active", "false")).build();
+    /// assert_eq!(delete.sql(), "DELETE FROM users WHERE active = false");
+    /// ```
     pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut DeleteBuilder<'a> {
         self.where_clause = Some(term);
         self
+    }
+}
+
+impl<'a> Parameterized for DeleteBuilder<'a> {
+    fn param(&mut self) -> String {
+        self.params.seq()
     }
 }
 
@@ -800,6 +1544,7 @@ pub fn D<'a>(table: &'a str) -> DeleteBuilder<'a> {
     DeleteBuilder {
         table,
         where_clause: None,
+        params: PgParams::new(),
     }
 }
 
@@ -832,6 +1577,245 @@ mod tests {
     fn op_o() {
         let result = Op::O("<>").sql();
         assert_eq!(result, "<>");
+    }
+
+    // Tests for extended Op enum variants
+    #[test]
+    fn op_not_equals() {
+        let result = Op::NotEquals.sql();
+        assert_eq!(result, "!=");
+    }
+
+    #[test]
+    fn op_greater_than() {
+        let result = Op::GreaterThan.sql();
+        assert_eq!(result, ">");
+    }
+
+    #[test]
+    fn op_less_than() {
+        let result = Op::LessThan.sql();
+        assert_eq!(result, "<");
+    }
+
+    #[test]
+    fn op_greater_or_equal() {
+        let result = Op::GreaterOrEqual.sql();
+        assert_eq!(result, ">=");
+    }
+
+    #[test]
+    fn op_less_or_equal() {
+        let result = Op::LessOrEqual.sql();
+        assert_eq!(result, "<=");
+    }
+
+    #[test]
+    fn op_like() {
+        let result = Op::Like.sql();
+        assert_eq!(result, "LIKE");
+    }
+
+    #[test]
+    fn op_in() {
+        let result = Op::In.sql();
+        assert_eq!(result, "IN");
+    }
+
+    // Tests for WHERE clause helper functions
+    #[test]
+    fn helper_eq() {
+        let result = eq("id", "123").sql();
+        assert_eq!(result, "id = 123");
+    }
+
+    #[test]
+    fn helper_ne() {
+        let result = ne("status", "'inactive'").sql();
+        assert_eq!(result, "status != 'inactive'");
+    }
+
+    #[test]
+    fn helper_gt() {
+        let result = gt("age", "18").sql();
+        assert_eq!(result, "age > 18");
+    }
+
+    #[test]
+    fn helper_lt() {
+        let result = lt("price", "100").sql();
+        assert_eq!(result, "price < 100");
+    }
+
+    #[test]
+    fn helper_gte() {
+        let result = gte("score", "50").sql();
+        assert_eq!(result, "score >= 50");
+    }
+
+    #[test]
+    fn helper_lte() {
+        let result = lte("count", "10").sql();
+        assert_eq!(result, "count <= 10");
+    }
+
+    #[test]
+    fn helper_like() {
+        let result = like("name", "'%john%'").sql();
+        assert_eq!(result, "name LIKE '%john%'");
+    }
+
+    #[test]
+    fn helper_and() {
+        let result = and(
+            eq("status", "'active'"),
+            gt("age", "18")
+        ).sql();
+        assert_eq!(result, "status = 'active' AND age > 18");
+    }
+
+    #[test]
+    fn helper_or() {
+        let result = or(
+            eq("role", "'admin'"),
+            eq("role", "'superuser'")
+        ).sql();
+        assert_eq!(result, "role = 'admin' OR role = 'superuser'");
+    }
+
+    #[test]
+    fn helper_parens() {
+        let result = parens(eq("a", "b")).sql();
+        assert_eq!(result, "(a = b)");
+    }
+
+    #[test]
+    fn helper_complex_combination() {
+        let result = and(
+            eq("active", "true"),
+            parens(or(
+                gt("age", "21"),
+                eq("verified", "true")
+            ))
+        ).sql();
+        assert_eq!(result, "active = true AND (age > 21 OR verified = true)");
+    }
+
+    // Tests for convenience functions (in_, between, is_null, is_not_null)
+    #[test]
+    fn helper_in() {
+        let result = in_("status", vec!["'active'", "'pending'"]).sql();
+        assert_eq!(result, "status IN ('active', 'pending')");
+    }
+
+    #[test]
+    fn helper_in_single() {
+        let result = in_("id", vec!["123"]).sql();
+        assert_eq!(result, "id IN (123)");
+    }
+
+    #[test]
+    fn helper_between() {
+        let result = between("age", "18", "65").sql();
+        assert_eq!(result, "age BETWEEN 18 AND 65");
+    }
+
+    #[test]
+    fn helper_is_null() {
+        let result = is_null("deleted_at").sql();
+        assert_eq!(result, "deleted_at IS NULL");
+    }
+
+    #[test]
+    fn helper_is_not_null() {
+        let result = is_not_null("created_at").sql();
+        assert_eq!(result, "created_at IS NOT NULL");
+    }
+
+    // Tests for PostgreSQL parameter helpers (p function and PgParams)
+    #[test]
+    fn test_p_function() {
+        assert_eq!(p(1), "$1");
+        assert_eq!(p(2), "$2");
+        assert_eq!(p(10), "$10");
+    }
+
+    #[test]
+    fn test_pg_params_seq() {
+        let mut pg = PgParams::new();
+        assert_eq!(pg.seq(), "$1");
+        assert_eq!(pg.seq(), "$2");
+        assert_eq!(pg.seq(), "$3");
+    }
+
+    #[test]
+    fn test_pg_params_in_query() {
+        let mut pg = PgParams::new();
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_(and(
+                eq("id", &pg.seq()),
+                eq("status", &pg.seq())
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
+    }
+
+    // Tests for integrated param() method on all builders
+    #[test]
+    fn test_query_builder_param() {
+        let mut qb = Q();
+        let p1 = qb.param();
+        let p2 = qb.param();
+        let result = qb
+            .select(vec!["*"])
+            .from("users")
+            .where_(and(
+                eq("id", &p1),
+                eq("status", &p2)
+            ))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE id = $1 AND status = $2");
+    }
+
+    #[test]
+    fn test_insert_builder_param() {
+        let mut ib = I("users");
+        let p1 = ib.param();
+        let p2 = ib.param();
+        let result = ib
+            .columns(vec!["name", "email"])
+            .values(vec![&p1, &p2])
+            .build()
+            .sql();
+        assert_eq!(result, "INSERT INTO users (name, email) VALUES ($1, $2)");
+    }
+
+    #[test]
+    fn test_update_builder_param() {
+        let mut ub = U("users");
+        let p1 = ub.param();
+        let p2 = ub.param();
+        let result = ub
+            .set(vec![("name", &p1)])
+            .where_(eq("id", &p2))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET name = $1 WHERE id = $2");
+    }
+
+    #[test]
+    fn test_delete_builder_param() {
+        let mut db = D("users");
+        let p1 = db.param();
+        let result = db
+            .where_(eq("id", &p1))
+            .build()
+            .sql();
+        assert_eq!(result, "DELETE FROM users WHERE id = $1");
     }
 
     #[test]
@@ -870,7 +1854,7 @@ mod tests {
     fn query() {
         let result = Query {
             select: Some(Select::new(Columns::Star)),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -891,7 +1875,7 @@ mod tests {
     fn query2() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::O("<>"),
@@ -912,7 +1896,7 @@ mod tests {
     fn query3() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -930,7 +1914,7 @@ mod tests {
     fn query4() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: Some(Term::Condition(
                 Box::new(Term::Atom("a")),
                 Op::Equals,
@@ -962,11 +1946,73 @@ mod tests {
         );
     }
 
+    // Tests for where_opt() and and_where() methods
+    #[test]
+    fn test_where_opt_with_some() {
+        let filter = Some(eq("status", "'active'"));
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(filter)
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active'");
+    }
+
+    #[test]
+    fn test_where_opt_with_none() {
+        let filter: Option<Term> = None;
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(filter)
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users");
+    }
+
+    #[test]
+    fn test_and_where_single() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .and_where(eq("status", "'active'"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active'");
+    }
+
+    #[test]
+    fn test_and_where_multiple() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .and_where(eq("status", "'active'"))
+            .and_where(gt("age", "18"))
+            .and_where(eq("verified", "true"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE status = 'active' AND age > 18 AND verified = true");
+    }
+
+    #[test]
+    fn test_where_opt_and_and_where_combined() {
+        let optional_filter = Some(eq("role", "'admin'"));
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .where_opt(optional_filter)
+            .and_where(eq("active", "true"))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users WHERE role = 'admin' AND active = true");
+    }
+
     #[test]
     fn limit_check() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -983,7 +2029,7 @@ mod tests {
     fn offset_check() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: None,
             having: None,
@@ -1035,7 +2081,7 @@ mod tests {
     fn test_group_by_having() {
         let result = Query {
             select: Some(Select::new(Columns::Selected(vec!["County", "sum(paid)"]))),
-            from: Some("table"),
+            from: Some(FromSource::Table("table")),
             where_clause: None,
             group_by: Some(vec!["County"]),
             having: Some(Having::new(
@@ -1183,6 +2229,33 @@ mod tests {
             .sql();
         assert_eq!(result, "UPDATE table SET a = 1, b = 2 WHERE a = b");
     }
+
+    // Tests for UpdateBuilder::set() method
+    #[test]
+    fn test_update_with_set() {
+        let result = U("users")
+            .set(vec![
+                ("name", "'John'"),
+                ("email", "'john@example.com'"),
+                ("status", "'active'")
+            ])
+            .where_(eq("id", "123"))
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET name = 'John', email = 'john@example.com', status = 'active' WHERE id = 123");
+    }
+
+    #[test]
+    fn test_update_with_set_no_where() {
+        let result = U("users")
+            .set(vec![
+                ("status", "'inactive'")
+            ])
+            .build()
+            .sql();
+        assert_eq!(result, "UPDATE users SET status = 'inactive'");
+    }
+
     #[test]
     fn test_update_complex() {
         let result = U("table")
@@ -1209,5 +2282,361 @@ mod tests {
             .build()
             .sql();
         assert_eq!(result, "UPDATE table SET a = 1, b = 2 FROM table2 WHERE a = b AND (c = d OR e) RETURNING a, b");
+    }
+
+    // Test for Term::Null variant (line 247)
+    #[test]
+    fn test_term_null() {
+        let result = Term::Null.sql();
+        assert_eq!(result, "");
+    }
+
+    // Test for PgParams::default() (lines 414-416)
+    #[test]
+    fn test_pg_params_default() {
+        let mut pg = PgParams::default();
+        assert_eq!(pg.seq(), "$1");
+        assert_eq!(pg.seq(), "$2");
+    }
+
+    // Test for QueryBuilder::for_update() (lines 606-609)
+    #[test]
+    fn test_query_builder_for_update() {
+        let result = Q()
+            .select(vec!["*"])
+            .from("users")
+            .for_update()
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM users FOR UPDATE");
+    }
+
+    // Test for TableBuilder::build_drop_table() (lines 715-719)
+    #[test]
+    fn test_table_builder_drop_table() {
+        let result = T("test_table")
+            .build_drop_table()
+            .sql();
+        assert_eq!(result, "DROP TABLE test_table");
+    }
+
+    // Test for TableBuilder::table() (lines 720-723)
+    #[test]
+    fn test_table_builder_table_method() {
+        let mut builder = T("original_table");
+        builder.table("new_table".to_string());
+        let result = builder.build_create_table().sql();
+        assert_eq!(result, "CREATE TABLE new_table ()");
+    }
+
+    // Tests for nested SELECT queries (Issue #7)
+
+    // Test subquery in WHERE clause with IN operator
+    #[test]
+    fn test_subquery_in_where_with_in() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["user_id"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = in_subquery("id", subquery).sql();
+        assert_eq!(result, "id IN (SELECT user_id FROM orders)");
+    }
+
+    // Test subquery in WHERE clause using Term::Subquery directly
+    #[test]
+    fn test_subquery_in_where_direct() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["user_id"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = Term::Subquery(Box::new(subquery)).sql();
+        assert_eq!(result, "(SELECT user_id FROM orders)");
+    }
+
+    // Test EXISTS operator
+    #[test]
+    fn test_exists_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = exists(subquery).sql();
+        assert_eq!(result, "EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)");
+    }
+
+    // Test NOT EXISTS operator
+    #[test]
+    fn test_not_exists_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("banned_users")),
+            where_clause: Some(eq("banned_users.id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = not_exists(subquery).sql();
+        assert_eq!(result, "NOT EXISTS (SELECT 1 FROM banned_users WHERE banned_users.id = users.id)");
+    }
+
+    // Test ANY operator
+    #[test]
+    fn test_any_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["price"]))),
+            from: Some(FromSource::Table("competitor_prices")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = any("our_price", Op::LessThan, subquery).sql();
+        assert_eq!(result, "our_price < ANY (SELECT price FROM competitor_prices)");
+    }
+
+    // Test ALL operator
+    #[test]
+    fn test_all_operator() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["price"]))),
+            from: Some(FromSource::Table("competitor_prices")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = all("our_price", Op::LessThan, subquery).sql();
+        assert_eq!(result, "our_price < ALL (SELECT price FROM competitor_prices)");
+    }
+
+    // Test subquery in FROM clause
+    #[test]
+    fn test_subquery_in_from_clause() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let result = FromSource::Subquery(Box::new(subquery), "active_users").sql();
+        assert_eq!(result, "(SELECT * FROM users WHERE active = true) AS active_users");
+    }
+
+    // Test subquery in FROM clause with QueryBuilder
+    #[test]
+    fn test_subquery_in_from_with_builder() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let mut qb = Q();
+        let result = qb.select(vec!["*"])
+            .from_subquery(subquery, "active_users")
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM (SELECT * FROM users WHERE active = true) AS active_users");
+    }
+
+    // Test subquery in SELECT clause
+    #[test]
+    fn test_subquery_in_select_clause() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let expr = SelectExpression::Subquery(Box::new(subquery), Some("order_count"));
+        assert_eq!(expr.sql(), "(SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count");
+    }
+
+    // Test subquery in SELECT clause without alias
+    #[test]
+    fn test_subquery_in_select_clause_no_alias() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let expr = SelectExpression::Subquery(Box::new(subquery), None);
+        assert_eq!(expr.sql(), "(SELECT COUNT(*) FROM orders)");
+    }
+
+    // Test full query with subquery in SELECT clause using QueryBuilder
+    #[test]
+    fn test_full_query_with_select_subquery() {
+        let subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "users.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+        let mut qb = Q();
+        let result = qb.select_expressions(vec![
+            SelectExpression::Column("id"),
+            SelectExpression::Column("name"),
+            SelectExpression::Subquery(Box::new(subquery), Some("order_count"))
+        ])
+            .from("users")
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT id, name, (SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count FROM users");
+    }
+
+    // Test Columns::Expressions with multiple columns
+    #[test]
+    fn test_columns_expressions() {
+        let cols = Columns::Expressions(vec![
+            SelectExpression::Column("id"),
+            SelectExpression::Column("name"),
+            SelectExpression::Column("email"),
+        ]);
+        assert_eq!(cols.sql(), "id, name, email");
+    }
+
+    // Test complex nested query: subquery in WHERE with EXISTS and subquery in FROM
+    #[test]
+    fn test_complex_nested_query() {
+        let exists_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["1"]))),
+            from: Some(FromSource::Table("orders")),
+            where_clause: Some(eq("orders.user_id", "u.id")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let from_subquery = Query {
+            select: Some(Select::new(Columns::Star)),
+            from: Some(FromSource::Table("users")),
+            where_clause: Some(eq("active", "true")),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let mut qb = Q();
+        let result = qb.select(vec!["*"])
+            .from_subquery(from_subquery, "u")
+            .where_(exists(exists_subquery))
+            .build()
+            .sql();
+        assert_eq!(result, "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u WHERE EXISTS (SELECT 1 FROM orders WHERE orders.user_id = u.id)");
+    }
+
+    // Test nested subquery (subquery within subquery in WHERE)
+    #[test]
+    fn test_nested_subquery_in_where() {
+        let inner_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["category_id"]))),
+            from: Some(FromSource::Table("popular_categories")),
+            where_clause: None,
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let outer_subquery = Query {
+            select: Some(Select::new(Columns::Selected(vec!["product_id"]))),
+            from: Some(FromSource::Table("products")),
+            where_clause: Some(in_subquery("category_id", inner_subquery)),
+            group_by: None,
+            having: None,
+            order_by: None,
+            limit: None,
+            offset: None,
+            for_update: false,
+        };
+
+        let result = in_subquery("id", outer_subquery).sql();
+        assert_eq!(result, "id IN (SELECT product_id FROM products WHERE category_id IN (SELECT category_id FROM popular_categories))");
+    }
+
+    // Test Op enum new variants
+    #[test]
+    fn test_op_exists() {
+        assert_eq!(Op::Exists.sql(), "EXISTS");
+    }
+
+    #[test]
+    fn test_op_not_exists() {
+        assert_eq!(Op::NotExists.sql(), "NOT EXISTS");
+    }
+
+    #[test]
+    fn test_op_any() {
+        assert_eq!(Op::Any.sql(), "ANY");
+    }
+
+    #[test]
+    fn test_op_all() {
+        assert_eq!(Op::All.sql(), "ALL");
     }
 }

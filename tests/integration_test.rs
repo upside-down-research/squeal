@@ -19,7 +19,7 @@ fn test_select() {
 fn test_complicated_query_builder() {
     let result = Query {
         select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-        from: Some("table"),
+        from: Some(FromSource::Table("table")),
         where_clause: Some(
             Term::Condition(
                 Box::new(Term::Atom("a")),
@@ -112,10 +112,10 @@ impl DockerTests {
     fn new() -> DockerTests {
         let cli = Cli::default();
 
-        let result = DockerTests { cli };
-        result
+        
+        DockerTests { cli }
     }
-    fn get_new_node_and_connection(&mut self) -> (testcontainers::Container<Postgres>, postgres::Client) {
+    fn get_new_node_and_connection(&mut self) -> (testcontainers::Container<'_, Postgres>, postgres::Client) {
         let image = RunnableImage::from(Postgres::default()).with_tag("13.3-alpine");
 
         let node = self.cli.run(image);
