@@ -618,8 +618,10 @@ impl<'a> Sql for OrderBy<'a> {
 /// ```
 /// use squeal::*;
 /// let subquery = Query {
+///     with_clause: None,
 ///     select: Some(Select::new(Columns::Star, None)),
 ///     from: Some(FromSource::Table("users")),
+///     joins: vec![],
 ///     where_clause: None,
 ///     group_by: None,
 ///     having: None,
@@ -876,8 +878,10 @@ impl<'a> QueryBuilder<'a> {
     /// ```
     /// use squeal::*;
     /// let subquery = Query {
+    ///     with_clause: None,
     ///     select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]), None)),
     ///     from: Some(FromSource::Table("orders")),
+    ///     joins: vec![],
     ///     where_clause: None,
     ///     group_by: None,
     ///     having: None,
@@ -935,8 +939,10 @@ impl<'a> QueryBuilder<'a> {
     /// ```
     /// use squeal::*;
     /// let subquery = Query {
+    ///     with_clause: None,
     ///     select: Some(Select::new(Columns::Star, None)),
     ///     from: Some(FromSource::Table("users")),
+    ///     joins: vec![],
     ///     where_clause: None,
     ///     group_by: None,
     ///     having: None,

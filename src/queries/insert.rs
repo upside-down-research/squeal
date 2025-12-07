@@ -53,6 +53,7 @@ impl<'a> Sql for OnConflict<'a> {
 ///    table: "table",
 ///    columns: vec!["a", "b"],
 ///    source: InsertSource::Values(vec![vec!["1", "2"]]),
+///    on_conflict: None,
 ///    returning: None,
 /// }.sql();
 /// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
@@ -65,6 +66,7 @@ impl<'a> Sql for OnConflict<'a> {
 ///    table: "table",
 ///    columns: vec!["a", "b"],
 ///    source: InsertSource::Values(vec![vec!["1", "2"], vec!["3", "4"]]),
+///    on_conflict: None,
 ///    returning: None,
 /// }.sql();
 /// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2), (3, 4)");
@@ -249,8 +251,10 @@ impl<'a> InsertBuilder<'a> {
     /// ```
     /// use squeal::*;
     /// let subquery = Query {
+    ///     with_clause: None,
     ///     select: Some(Select::new(Columns::Selected(vec!["name", "email"]), None)),
     ///     from: Some(FromSource::Table("active_users")),
+    ///     joins: vec![],
     ///     where_clause: None,
     ///     group_by: None,
     ///     having: None,
