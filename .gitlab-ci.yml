@@ -25,13 +25,13 @@ rust-integration:
   stage: test
   script:
     - echo "Running integration tests"
-    - "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly"
-    - cargo install junitify
-    - "cargo +nightly test -- --format=json -Z unstable-options --report-time | junitify --out test-results"
+    - "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+    - cargo install cargo-nextest
+    - cargo nextest run --profile ci
   artifacts:
       when: always
       reports:
-        junit: test-results/*.xml
+        junit: target/nextest/ci/junit.xml
   allow_failure: true
 # make this fire when the 'integration' label is set.
   rules:
