@@ -697,12 +697,29 @@ impl<'a> Sql for Join<'a> {
     }
 }
 
+/// Represents a Common Table Expression (CTE) in a WITH clause
+#[derive(Clone)]
+pub struct Cte<'a> {
+    /// The name of the CTE
+    pub name: &'a str,
+    /// The query that defines the CTE
+    pub query: Box<Query<'a>>,
+}
+
+impl<'a> Sql for Cte<'a> {
+    fn sql(&self) -> String {
+        format!("{} AS ({})", self.name, self.query.sql())
+    }
+}
+
 /// The Query struct is the top-level object that represents a query.
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
 ///
 #[derive(Clone)]
 pub struct Query<'a> {
+    /// WITH clause (Common Table Expressions)
+    pub with_clause: Option<Vec<Cte<'a>>>,
     /// The select clause.
     pub select: Option<Select<'a>>,
     /// The table name for the select clause.
@@ -729,6 +746,8 @@ pub struct Query<'a> {
 /// It is not intended to be used directly, but rather through the Q() function.
 /// See the integration_test.rs for an example of usage.
 pub struct QueryBuilder<'a> {
+    /// WITH clause (Common Table Expressions)
+    pub with_clause: Option<Vec<Cte<'a>>>,
     /// The select clause
     pub select: Option<Select<'a>>,
     /// The table to select from
@@ -759,6 +778,7 @@ pub struct QueryBuilder<'a> {
 #[allow(non_snake_case)]
 pub fn Q<'a>() -> QueryBuilder<'a> {
     QueryBuilder {
+        with_clause: None,
         select: None,
         from: None,
         joins: Vec::new(),
@@ -785,6 +805,7 @@ impl<'a> QueryBuilder<'a> {
     /// ```
     pub fn build(&self) -> Query<'a> {
         Query {
+            with_clause: self.with_clause.clone(),
             select: self.select.clone(),
             from: self.from.clone(),
             joins: self.joins.clone(),
@@ -797,6 +818,44 @@ impl<'a> QueryBuilder<'a> {
             for_update: self.for_update,
         }
     }
+
+    /// Adds a WITH clause (Common Table Expression)
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let cte_query = Query {
+    ///     with_clause: None,
+    ///     select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+    ///     from: Some(FromSource::Table("users")),
+    ///     joins: vec![],
+    ///     where_clause: Some(eq("active", "true")),
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.with("active_users", cte_query)
+    ///     .select(vec!["*"])
+    ///     .from("active_users")
+    ///     .build();
+    /// assert_eq!(query.sql(), "WITH active_users AS (SELECT id, name FROM users WHERE active = true) SELECT * FROM active_users");
+    /// ```
+    pub fn with(&'a mut self, name: &'a str, query: Query<'a>) -> &'a mut QueryBuilder<'a> {
+        let cte = Cte {
+            name,
+            query: Box::new(query),
+        };
+        match &mut self.with_clause {
+            None => self.with_clause = Some(vec![cte]),
+            Some(ctes) => ctes.push(cte),
+        }
+        self
+    }
+
     /// Sets the columns to SELECT
     ///
     /// # Example
@@ -1006,6 +1065,7 @@ impl<'a> QueryBuilder<'a> {
     /// ```
     /// use squeal::*;
     /// let subquery = Query {
+    ///     with_clause: None,
     ///     select: Some(Select::new(Columns::Selected(vec!["user_id", "COUNT(*) as order_count"]), None)),
     ///     from: Some(FromSource::Table("orders")),
     ///     joins: vec![],
@@ -1168,6 +1228,19 @@ impl<'a> Parameterized for QueryBuilder<'a> {
 impl<'a> Sql for Query<'a> {
     fn sql(&self) -> String {
         let mut result = String::new();
+
+        if let Some(ctes) = &self.with_clause {
+            result.push_str("WITH ");
+            let mut first = true;
+            for cte in ctes {
+                if !first {
+                    result.push_str(", ");
+                }
+                first = false;
+                result.push_str(&cte.sql());
+            }
+            result.push(' ');
+        }
 
         if let Some(select) = &self.select {
             result.push_str(&format!("SELECT {}", select.sql()));

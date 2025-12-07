@@ -18,6 +18,7 @@ fn test_select() {
 #[test]
 fn test_complicated_query_builder() {
     let result = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["a", "b"]), None)),
         from: Some(FromSource::Table("table")),
         joins: vec![],
@@ -246,6 +247,7 @@ fn create_table_insert_data_query_it() -> Result<(), String> {
 #[test]
 fn test_subquery_in_where_with_in() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["user_id"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -264,6 +266,7 @@ fn test_subquery_in_where_with_in() {
 #[test]
 fn test_subquery_in_where_direct() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["user_id"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -282,6 +285,7 @@ fn test_subquery_in_where_direct() {
 #[test]
 fn test_exists_operator() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["1"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -300,6 +304,7 @@ fn test_exists_operator() {
 #[test]
 fn test_not_exists_operator() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["1"]), None)),
         from: Some(FromSource::Table("banned_users")),
         joins: vec![],
@@ -318,6 +323,7 @@ fn test_not_exists_operator() {
 #[test]
 fn test_any_operator() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["price"]), None)),
         from: Some(FromSource::Table("competitor_prices")),
         joins: vec![],
@@ -336,6 +342,7 @@ fn test_any_operator() {
 #[test]
 fn test_all_operator() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["price"]), None)),
         from: Some(FromSource::Table("competitor_prices")),
         joins: vec![],
@@ -354,6 +361,7 @@ fn test_all_operator() {
 #[test]
 fn test_subquery_in_from_clause() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Star, None)),
         from: Some(FromSource::Table("users")),
         joins: vec![],
@@ -372,6 +380,7 @@ fn test_subquery_in_from_clause() {
 #[test]
 fn test_subquery_in_from_with_builder() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Star, None)),
         from: Some(FromSource::Table("users")),
         joins: vec![],
@@ -394,6 +403,7 @@ fn test_subquery_in_from_with_builder() {
 #[test]
 fn test_subquery_in_select_clause() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -412,6 +422,7 @@ fn test_subquery_in_select_clause() {
 #[test]
 fn test_subquery_in_select_clause_no_alias() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -430,6 +441,7 @@ fn test_subquery_in_select_clause_no_alias() {
 #[test]
 fn test_full_query_with_select_subquery() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -456,6 +468,7 @@ fn test_full_query_with_select_subquery() {
 #[test]
 fn test_complex_nested_query() {
     let exists_subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["1"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -469,6 +482,7 @@ fn test_complex_nested_query() {
     };
 
     let from_subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Star, None)),
         from: Some(FromSource::Table("users")),
         joins: vec![],
@@ -493,6 +507,7 @@ fn test_complex_nested_query() {
 #[test]
 fn test_nested_subquery_in_where() {
     let inner_subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["category_id"]), None)),
         from: Some(FromSource::Table("popular_categories")),
         joins: vec![],
@@ -506,6 +521,7 @@ fn test_nested_subquery_in_where() {
     };
 
     let outer_subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["product_id"]), None)),
         from: Some(FromSource::Table("products")),
         joins: vec![],
@@ -941,6 +957,7 @@ fn test_insert_builder_param() {
 #[test]
 fn test_insert_select_direct() {
     let select_query = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["name", "email"]), None)),
         from: Some(FromSource::Table("active_users")),
         joins: vec![],
@@ -964,6 +981,7 @@ fn test_insert_select_direct() {
 #[test]
 fn test_insert_select_builder() {
     let select_query = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Star, None)),
         from: Some(FromSource::Table("old_data")),
         joins: vec![],
@@ -983,6 +1001,7 @@ fn test_insert_select_builder() {
 #[test]
 fn test_insert_select_with_returning() {
     let select_query = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["user_id", "amount"]), None)),
         from: Some(FromSource::Table("pending_transactions")),
         joins: vec![],
@@ -1316,6 +1335,7 @@ fn test_update_multiple_columns() {
 #[test]
 fn test_query_empty() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1333,6 +1353,7 @@ fn test_query_empty() {
 #[test]
 fn test_query_select_only() {
     let query = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Star, None)),
         from: None,
         joins: vec![],
@@ -1350,6 +1371,7 @@ fn test_query_select_only() {
 #[test]
 fn test_query_from_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: Some(FromSource::Table("users")),
         joins: vec![],
@@ -1367,6 +1389,7 @@ fn test_query_from_only() {
 #[test]
 fn test_query_where_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1384,6 +1407,7 @@ fn test_query_where_only() {
 #[test]
 fn test_query_group_by_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1401,6 +1425,7 @@ fn test_query_group_by_only() {
 #[test]
 fn test_query_having_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1418,6 +1443,7 @@ fn test_query_having_only() {
 #[test]
 fn test_query_order_by_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1435,6 +1461,7 @@ fn test_query_order_by_only() {
 #[test]
 fn test_query_limit_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1452,6 +1479,7 @@ fn test_query_limit_only() {
 #[test]
 fn test_query_offset_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1469,6 +1497,7 @@ fn test_query_offset_only() {
 #[test]
 fn test_query_for_update_only() {
     let query = Query {
+        with_clause: None,
         select: None,
         from: None,
         joins: vec![],
@@ -1671,6 +1700,7 @@ fn test_join_struct_cross_join_no_on() {
 #[test]
 fn test_join_subquery() {
     let subquery = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["user_id", "COUNT(*) as order_count"]), None)),
         from: Some(FromSource::Table("orders")),
         joins: vec![],
@@ -1705,6 +1735,7 @@ fn test_join_with_group_by_and_having() {
 #[test]
 fn test_direct_join_struct_construction() {
     let query = Query {
+        with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["users.name", "orders.total"]), None)),
         from: Some(FromSource::Table("users")),
         joins: vec![
@@ -1723,4 +1754,194 @@ fn test_direct_join_struct_construction() {
         for_update: false,
     };
     assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id");
+}
+
+// CTE / WITH clause tests
+#[test]
+fn test_simple_cte() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: Some(eq("active", "true")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("active_users", cte_query)
+        .select(vec!["*"])
+        .from("active_users")
+        .build();
+    assert_eq!(query.sql(), "WITH active_users AS (SELECT id, name FROM users WHERE active = true) SELECT * FROM active_users");
+}
+
+#[test]
+fn test_multiple_ctes() {
+    let cte1 = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: Some(eq("active", "true")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let cte2 = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["user_id", "COUNT(*) as order_count"]), None)),
+        from: Some(FromSource::Table("orders")),
+        joins: vec![],
+        where_clause: None,
+        group_by: Some(vec!["user_id"]),
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("active_users", cte1)
+        .with("user_orders", cte2)
+        .select(vec!["au.name", "uo.order_count"])
+        .from("active_users au")
+        .inner_join("user_orders uo", eq("au.id", "uo.user_id"))
+        .build();
+    assert_eq!(query.sql(), "WITH active_users AS (SELECT id, name FROM users WHERE active = true), user_orders AS (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) SELECT au.name, uo.order_count FROM active_users au INNER JOIN user_orders uo ON au.id = uo.user_id");
+}
+
+#[test]
+fn test_cte_with_join() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: Some(gt("created_at", "'2023-01-01'")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("recent_users", cte_query)
+        .select(vec!["ru.name", "orders.total"])
+        .from("recent_users ru")
+        .left_join("orders", eq("ru.id", "orders.user_id"))
+        .build();
+    assert_eq!(query.sql(), "WITH recent_users AS (SELECT id, name FROM users WHERE created_at > '2023-01-01') SELECT ru.name, orders.total FROM recent_users ru LEFT JOIN orders ON ru.id = orders.user_id");
+}
+
+#[test]
+fn test_cte_with_where_clause() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["category", "SUM(amount) as total"]), None)),
+        from: Some(FromSource::Table("transactions")),
+        joins: vec![],
+        where_clause: None,
+        group_by: Some(vec!["category"]),
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("category_totals", cte_query)
+        .select(vec!["*"])
+        .from("category_totals")
+        .where_(gt("total", "1000"))
+        .build();
+    assert_eq!(query.sql(), "WITH category_totals AS (SELECT category, SUM(amount) as total FROM transactions GROUP BY category) SELECT * FROM category_totals WHERE total > 1000");
+}
+
+#[test]
+fn test_cte_struct_sql() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let cte = Cte {
+        name: "my_cte",
+        query: Box::new(cte_query),
+    };
+    assert_eq!(cte.sql(), "my_cte AS (SELECT id FROM users)");
+}
+
+#[test]
+fn test_cte_with_order_and_limit() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["*"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: Some(OrderBy { columns: vec![OrderedColumn::Desc("created_at")] }),
+        limit: Some(10),
+        offset: None,
+        for_update: false,
+    };
+    let mut qb = Q();
+    let query = qb.with("top_users", cte_query)
+        .select(vec!["name", "email"])
+        .from("top_users")
+        .build();
+    assert_eq!(query.sql(), "WITH top_users AS (SELECT * FROM users ORDER BY created_at DESC LIMIT 10) SELECT name, email FROM top_users");
+}
+
+#[test]
+fn test_direct_cte_construction() {
+    let query = Query {
+        with_clause: Some(vec![
+            Cte {
+                name: "cte1",
+                query: Box::new(Query {
+                    with_clause: None,
+                    select: Some(Select::new(Columns::Selected(vec!["id"]), None)),
+                    from: Some(FromSource::Table("users")),
+                    joins: vec![],
+                    where_clause: None,
+                    group_by: None,
+                    having: None,
+                    order_by: None,
+                    limit: None,
+                    offset: None,
+                    for_update: false,
+                }),
+            }
+        ]),
+        select: Some(Select::new(Columns::Star, None)),
+        from: Some(FromSource::Table("cte1")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    assert_eq!(query.sql(), "WITH cte1 AS (SELECT id FROM users) SELECT * FROM cte1");
 }
