@@ -2324,7 +2324,7 @@ mod tests {
     #[test]
     fn test_table_builder_table_method() {
         let mut builder = T("original_table");
-        builder.table("new_table".to_string());
+        builder.table("new_table");
         let result = builder.build_create_table().sql();
         assert_eq!(result, "CREATE TABLE new_table ()");
     }
