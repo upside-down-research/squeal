@@ -10,6 +10,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  msrv:
+    name: Minimum Supported Rust Version (1.90)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check with MSRV
+        run: cargo +1.90 check --all-targets --all-features
+
   fmt:
     name: Format Check
     runs-on: ubuntu-latest
@@ -92,10 +113,9 @@ jobs:
           echo "SUCCESS: Coverage $COVERAGE% meets 90% threshold"
 
   integration-test:
-    name: Integration Test
+    name: Integration Test with Docker
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'integration')
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
@@ -107,24 +127,23 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      - name: Install nightly toolchain
-        uses: dtolnay/rust-toolchain@nightly
-      - name: Install junitify
-        run: cargo install junitify
-      - name: Run integration tests
-        run: cargo +nightly test -- --format=json -Z unstable-options --report-time | junitify --out test-results
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run PostgreSQL Docker integration tests
+        run: cargo test --features postgres-docker --verbose 2>&1 | tee test-output.log
       - name: Upload test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
-          path: test-results/*.xml
+          name: integration-test-results
+          path: test-output.log
 
 
   release-build:
     name: Release Build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
-    needs: [fmt, clippy, test, coverage]
+    needs: [msrv, fmt, clippy, test, coverage]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
