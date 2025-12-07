@@ -19,7 +19,7 @@ fn test_select() {
 fn test_complicated_query_builder() {
     let result = Query {
         select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-        from: Some("table"),
+        from: Some(FromSource::Table("table")),
         where_clause: Some(
             Term::Condition(
                 Box::new(Term::Atom("a")),
