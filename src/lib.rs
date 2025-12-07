@@ -648,6 +648,55 @@ impl<'a> Sql for FromSource<'a> {
     }
 }
 
+/// Join type for SQL JOIN clauses
+#[derive(Clone)]
+pub enum JoinType {
+    /// INNER JOIN
+    Inner,
+    /// LEFT JOIN (LEFT OUTER JOIN)
+    Left,
+    /// RIGHT JOIN (RIGHT OUTER JOIN)
+    Right,
+    /// FULL JOIN (FULL OUTER JOIN)
+    Full,
+    /// CROSS JOIN
+    Cross,
+}
+
+impl Sql for JoinType {
+    fn sql(&self) -> String {
+        match self {
+            JoinType::Inner => "INNER JOIN",
+            JoinType::Left => "LEFT JOIN",
+            JoinType::Right => "RIGHT JOIN",
+            JoinType::Full => "FULL JOIN",
+            JoinType::Cross => "CROSS JOIN",
+        }
+        .to_string()
+    }
+}
+
+/// Represents a JOIN clause in a SQL query
+#[derive(Clone)]
+pub struct Join<'a> {
+    /// The type of join (INNER, LEFT, RIGHT, FULL, CROSS)
+    pub join_type: JoinType,
+    /// The table or subquery to join
+    pub source: FromSource<'a>,
+    /// The join condition (ON clause), None for CROSS JOIN
+    pub on: Option<Term<'a>>,
+}
+
+impl<'a> Sql for Join<'a> {
+    fn sql(&self) -> String {
+        let mut result = format!("{} {}", self.join_type.sql(), self.source.sql());
+        if let Some(condition) = &self.on {
+            result.push_str(&format!(" ON {}", condition.sql()));
+        }
+        result
+    }
+}
+
 /// The Query struct is the top-level object that represents a query.
 /// The user is expected to construct the Query object and then call the sql() method to get the
 /// SQL string.
@@ -658,6 +707,8 @@ pub struct Query<'a> {
     pub select: Option<Select<'a>>,
     /// The table name for the select clause.
     pub from: Option<FromSource<'a>>,
+    /// JOIN clauses
+    pub joins: Vec<Join<'a>>,
     /// The conditions for the where clause, if it exists.
     pub where_clause: Option<Term<'a>>,
     /// The columns to group by, if any.
@@ -682,6 +733,8 @@ pub struct QueryBuilder<'a> {
     pub select: Option<Select<'a>>,
     /// The table to select from
     pub from: Option<FromSource<'a>>,
+    /// JOIN clauses
+    pub joins: Vec<Join<'a>>,
     /// The WHERE clause conditions
     pub where_clause: Option<Term<'a>>,
     /// The columns to GROUP BY
@@ -708,6 +761,7 @@ pub fn Q<'a>() -> QueryBuilder<'a> {
     QueryBuilder {
         select: None,
         from: None,
+        joins: Vec::new(),
         where_clause: None,
         group_by: None,
         having: None,
@@ -733,6 +787,7 @@ impl<'a> QueryBuilder<'a> {
         Query {
             select: self.select.clone(),
             from: self.from.clone(),
+            joins: self.joins.clone(),
             where_clause: self.where_clause.clone(),
             group_by: self.group_by.clone(),
             having: self.having.clone(),
@@ -839,6 +894,151 @@ impl<'a> QueryBuilder<'a> {
         self.from = Some(FromSource::Subquery(Box::new(subquery), alias));
         self
     }
+
+    /// Adds an INNER JOIN clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "orders.total"])
+    ///     .from("users")
+    ///     .inner_join("orders", eq("users.id", "orders.user_id"))
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id");
+    /// ```
+    pub fn inner_join(&'a mut self, table: &'a str, on: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type: JoinType::Inner,
+            source: FromSource::Table(table),
+            on: Some(on),
+        });
+        self
+    }
+
+    /// Adds a LEFT JOIN clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "orders.total"])
+    ///     .from("users")
+    ///     .left_join("orders", eq("users.id", "orders.user_id"))
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users LEFT JOIN orders ON users.id = orders.user_id");
+    /// ```
+    pub fn left_join(&'a mut self, table: &'a str, on: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type: JoinType::Left,
+            source: FromSource::Table(table),
+            on: Some(on),
+        });
+        self
+    }
+
+    /// Adds a RIGHT JOIN clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "orders.total"])
+    ///     .from("users")
+    ///     .right_join("orders", eq("users.id", "orders.user_id"))
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users RIGHT JOIN orders ON users.id = orders.user_id");
+    /// ```
+    pub fn right_join(&'a mut self, table: &'a str, on: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type: JoinType::Right,
+            source: FromSource::Table(table),
+            on: Some(on),
+        });
+        self
+    }
+
+    /// Adds a FULL JOIN clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "orders.total"])
+    ///     .from("users")
+    ///     .full_join("orders", eq("users.id", "orders.user_id"))
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users FULL JOIN orders ON users.id = orders.user_id");
+    /// ```
+    pub fn full_join(&'a mut self, table: &'a str, on: Term<'a>) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type: JoinType::Full,
+            source: FromSource::Table(table),
+            on: Some(on),
+        });
+        self
+    }
+
+    /// Adds a CROSS JOIN clause (no ON condition required)
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "colors.name"])
+    ///     .from("users")
+    ///     .cross_join("colors")
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, colors.name FROM users CROSS JOIN colors");
+    /// ```
+    pub fn cross_join(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type: JoinType::Cross,
+            source: FromSource::Table(table),
+            on: None,
+        });
+        self
+    }
+
+    /// Adds a JOIN clause with a subquery as the source
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Selected(vec!["user_id", "COUNT(*) as order_count"]), None)),
+    ///     from: Some(FromSource::Table("orders")),
+    ///     joins: vec![],
+    ///     where_clause: None,
+    ///     group_by: Some(vec!["user_id"]),
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut qb = Q();
+    /// let query = qb.select(vec!["users.name", "oc.order_count"])
+    ///     .from("users")
+    ///     .join_subquery(JoinType::Left, subquery, "oc", eq("users.id", "oc.user_id"))
+    ///     .build();
+    /// assert_eq!(query.sql(), "SELECT users.name, oc.order_count FROM users LEFT JOIN (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) AS oc ON users.id = oc.user_id");
+    /// ```
+    pub fn join_subquery(
+        &'a mut self,
+        join_type: JoinType,
+        subquery: Query<'a>,
+        alias: &'a str,
+        on: Term<'a>,
+    ) -> &'a mut QueryBuilder<'a> {
+        self.joins.push(Join {
+            join_type,
+            source: FromSource::Subquery(Box::new(subquery), alias),
+            on: Some(on),
+        });
+        self
+    }
+
     /// Sets the WHERE clause
     ///
     /// # Example
@@ -974,6 +1174,9 @@ impl<'a> Sql for Query<'a> {
         }
         if let Some(from) = &self.from {
             result.push_str(&format!(" FROM {}", from.sql()));
+        }
+        for join in &self.joins {
+            result.push_str(&format!(" {}", join.sql()));
         }
         if let Some(conditions) = &self.where_clause {
             result.push_str(&format!(" WHERE {}", conditions.sql()));
