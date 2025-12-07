@@ -864,7 +864,7 @@ fn test_insert_direct() {
     let insert = Insert {
         table: "users",
         columns: vec!["name", "email"],
-        source: InsertSource::Values(vec!["'John'", "'john@example.com'"]),
+        source: InsertSource::Values(vec![vec!["'John'", "'john@example.com'"]]),
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')");
@@ -875,7 +875,7 @@ fn test_insert_with_returning() {
     let insert = Insert {
         table: "users",
         columns: vec!["name"],
-        source: InsertSource::Values(vec!["'Alice'"]),
+        source: InsertSource::Values(vec![vec!["'Alice'"]]),
         returning: Some(Columns::Star),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice') RETURNING *");
@@ -886,7 +886,7 @@ fn test_insert_with_returning_columns() {
     let insert = Insert {
         table: "users",
         columns: vec!["name"],
-        source: InsertSource::Values(vec!["'Bob'"]),
+        source: InsertSource::Values(vec![vec!["'Bob'"]]),
         returning: Some(Columns::Selected(vec!["id", "name"])),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob') RETURNING id, name");
@@ -1238,10 +1238,38 @@ fn test_insert_multiple_columns_direct() {
     let insert = Insert {
         table: "users",
         columns: vec!["name", "email", "age"],
-        source: InsertSource::Values(vec!["'John'", "'john@example.com'", "30"]),
+        source: InsertSource::Values(vec![vec!["'John'", "'john@example.com'", "30"]]),
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email, age) VALUES ('John', 'john@example.com', 30)");
+}
+
+#[test]
+fn test_insert_multiple_rows_direct() {
+    let insert = Insert {
+        table: "users",
+        columns: vec!["name", "age"],
+        source: InsertSource::Values(vec![
+            vec!["'Alice'", "30"],
+            vec!["'Bob'", "25"],
+            vec!["'Charlie'", "35"]
+        ]),
+        returning: None,
+    };
+    assert_eq!(insert.sql(), "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Charlie', 35)");
+}
+
+#[test]
+fn test_insert_multiple_rows_builder() {
+    let mut ib = I("products");
+    let insert = ib.columns(vec!["name", "price"])
+        .rows(vec![
+            vec!["'Widget'", "9.99"],
+            vec!["'Gadget'", "19.99"],
+            vec!["'Doohickey'", "14.99"]
+        ])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO products (name, price) VALUES ('Widget', 9.99), ('Gadget', 19.99), ('Doohickey', 14.99)");
 }
 
 #[test]

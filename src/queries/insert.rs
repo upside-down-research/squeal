@@ -3,8 +3,9 @@ use crate::{Columns, Parameterized, PgParams, Query, Sql};
 /// Represents the source of data for an INSERT statement
 #[derive(Clone)]
 pub enum InsertSource<'a> {
-    /// Insert from literal values: VALUES (val1, val2, ...)
-    Values(Vec<&'a str>),
+    /// Insert from literal values: VALUES (val1, val2, ...), (val3, val4, ...), ...
+    /// Each inner Vec represents one row of values
+    Values(Vec<Vec<&'a str>>),
     /// Insert from a SELECT query: SELECT ...
     Select(Box<Query<'a>>),
 }
@@ -16,13 +17,26 @@ pub enum InsertSource<'a> {
 ///  # Examples
 /// ```
 /// use squeal::*;
+/// // Single row insert
 /// let result = Insert {
 ///    table: "table",
 ///    columns: vec!["a", "b"],
-///    source: InsertSource::Values(vec!["1", "2"]),
+///    source: InsertSource::Values(vec![vec!["1", "2"]]),
 ///    returning: None,
 /// }.sql();
 /// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
+/// ```
+///
+/// ```
+/// use squeal::*;
+/// // Multiple row insert
+/// let result = Insert {
+///    table: "table",
+///    columns: vec!["a", "b"],
+///    source: InsertSource::Values(vec![vec!["1", "2"], vec!["3", "4"]]),
+///    returning: None,
+/// }.sql();
+/// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2), (3, 4)");
 /// ```
 /// Note that the values are not escaped, so you must do that yourself.
 /// If using a prepared statement, you will have to specify the Placeholder and pass in the values to
@@ -54,17 +68,25 @@ impl<'a> Sql for Insert<'a> {
 
         // Handle source (VALUES or SELECT)
         match &self.source {
-            InsertSource::Values(values) => {
-                result.push_str("VALUES (");
-                let mut first = true;
-                for v in values {
-                    if !first {
+            InsertSource::Values(rows) => {
+                result.push_str("VALUES ");
+                let mut first_row = true;
+                for row in rows {
+                    if !first_row {
                         result.push_str(", ");
                     }
-                    first = false;
-                    result.push_str(v.as_ref());
+                    first_row = false;
+                    result.push('(');
+                    let mut first_val = true;
+                    for v in row {
+                        if !first_val {
+                            result.push_str(", ");
+                        }
+                        first_val = false;
+                        result.push_str(v.as_ref());
+                    }
+                    result.push(')');
                 }
-                result.push(')');
             }
             InsertSource::Select(query) => {
                 result.push_str(&query.sql());
@@ -128,7 +150,7 @@ impl<'a> InsertBuilder<'a> {
         Insert {
             table: self.table,
             columns: self.columns.clone(),
-            source: self.source.clone().unwrap_or(InsertSource::Values(Vec::new())),
+            source: self.source.clone().unwrap_or(InsertSource::Values(vec![Vec::new()])),
             returning: self.returning.clone(),
         }
     }
@@ -147,7 +169,7 @@ impl<'a> InsertBuilder<'a> {
         }
         self
     }
-    /// Sets the values to insert
+    /// Sets the values to insert (single row)
     ///
     /// # Example
     /// ```
@@ -157,7 +179,27 @@ impl<'a> InsertBuilder<'a> {
     /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob')");
     /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
-        self.source = Some(InsertSource::Values(values));
+        self.source = Some(InsertSource::Values(vec![values]));
+        self
+    }
+
+    /// Sets multiple rows of values to insert
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["name", "age"])
+    ///     .rows(vec![
+    ///         vec!["'Alice'", "30"],
+    ///         vec!["'Bob'", "25"],
+    ///         vec!["'Charlie'", "35"]
+    ///     ])
+    ///     .build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Charlie', 35)");
+    /// ```
+    pub fn rows(&'a mut self, rows: Vec<Vec<&'a str>>) -> &'a mut InsertBuilder<'a> {
+        self.source = Some(InsertSource::Values(rows));
         self
     }
 
