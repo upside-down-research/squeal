@@ -10,6 +10,37 @@ pub enum InsertSource<'a> {
     Select(Box<Query<'a>>),
 }
 
+/// Represents the ON CONFLICT clause for INSERT statements (PostgreSQL UPSERT)
+#[derive(Clone)]
+pub enum OnConflict<'a> {
+    /// ON CONFLICT (columns) DO NOTHING
+    DoNothing(Vec<&'a str>),
+    /// ON CONFLICT (columns) DO UPDATE SET col1 = val1, col2 = val2, ...
+    DoUpdate(Vec<&'a str>, Vec<(&'a str, &'a str)>),
+}
+
+impl<'a> Sql for OnConflict<'a> {
+    fn sql(&self) -> String {
+        match self {
+            OnConflict::DoNothing(columns) => {
+                format!("ON CONFLICT ({}) DO NOTHING", columns.join(", "))
+            }
+            OnConflict::DoUpdate(columns, updates) => {
+                let mut result = format!("ON CONFLICT ({}) DO UPDATE SET ", columns.join(", "));
+                let mut first = true;
+                for (col, val) in updates {
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_str(&format!("{} = {}", col, val));
+                }
+                result
+            }
+        }
+    }
+}
+
 /// The Insert struct is used to specify an insert query.
 /// The user is expect to construct the Insert object and then call the sql() method to
 /// get the SQL string.
@@ -49,6 +80,8 @@ pub struct Insert<'a> {
     pub columns: Vec<&'a str>,
     /// The source of data (VALUES or SELECT)
     pub source: InsertSource<'a>,
+    /// Optional ON CONFLICT clause for handling unique constraint violations
+    pub on_conflict: Option<OnConflict<'a>>,
     /// Optional RETURNING clause columns
     pub returning: Option<Columns<'a>>,
 }
@@ -93,6 +126,10 @@ impl<'a> Sql for Insert<'a> {
             }
         }
 
+        if let Some(on_conflict) = &self.on_conflict {
+            result.push_str(&format!(" {}", on_conflict.sql()));
+        }
+
         if self.returning.is_some() {
             result.push_str(&format!(" RETURNING {}", self.returning.as_ref().unwrap().sql()));
         }
@@ -106,6 +143,7 @@ pub struct InsertBuilder<'a> {
     table: &'a str,
     columns: Vec<&'a str>,
     source: Option<InsertSource<'a>>,
+    on_conflict: Option<OnConflict<'a>>,
     returning: Option<Columns<'a>>,
     params: PgParams,
 }
@@ -131,6 +169,7 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
         table,
         columns: Vec::new(),
         source: None,
+        on_conflict: None,
         returning: None,
         params: PgParams::new(),
     }
@@ -151,6 +190,7 @@ impl<'a> InsertBuilder<'a> {
             table: self.table,
             columns: self.columns.clone(),
             source: self.source.clone().unwrap_or(InsertSource::Values(vec![Vec::new()])),
+            on_conflict: self.on_conflict.clone(),
             returning: self.returning.clone(),
         }
     }
@@ -239,6 +279,40 @@ impl<'a> InsertBuilder<'a> {
     /// ```
     pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut InsertBuilder<'a> {
         self.returning = Some(columns);
+        self
+    }
+
+    /// Sets the ON CONFLICT DO NOTHING clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["email", "name"])
+    ///     .values(vec!["'alice@example.com'", "'Alice'"])
+    ///     .on_conflict_do_nothing(vec!["email"])
+    ///     .build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO NOTHING");
+    /// ```
+    pub fn on_conflict_do_nothing(&'a mut self, columns: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
+        self.on_conflict = Some(OnConflict::DoNothing(columns));
+        self
+    }
+
+    /// Sets the ON CONFLICT DO UPDATE clause
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("users");
+    /// let insert = ib.columns(vec!["email", "name"])
+    ///     .values(vec!["'alice@example.com'", "'Alice'"])
+    ///     .on_conflict_do_update(vec!["email"], vec![("name", "'Alice Updated'")])
+    ///     .build();
+    /// assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO UPDATE SET name = 'Alice Updated'");
+    /// ```
+    pub fn on_conflict_do_update(&'a mut self, conflict_columns: Vec<&'a str>, updates: Vec<(&'a str, &'a str)>) -> &'a mut InsertBuilder<'a> {
+        self.on_conflict = Some(OnConflict::DoUpdate(conflict_columns, updates));
         self
     }
 }

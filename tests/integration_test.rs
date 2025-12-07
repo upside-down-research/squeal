@@ -897,6 +897,7 @@ fn test_insert_direct() {
         table: "users",
         columns: vec!["name", "email"],
         source: InsertSource::Values(vec![vec!["'John'", "'john@example.com'"]]),
+        on_conflict: None,
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')");
@@ -908,6 +909,7 @@ fn test_insert_with_returning() {
         table: "users",
         columns: vec!["name"],
         source: InsertSource::Values(vec![vec!["'Alice'"]]),
+        on_conflict: None,
         returning: Some(Columns::Star),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice') RETURNING *");
@@ -919,6 +921,7 @@ fn test_insert_with_returning_columns() {
         table: "users",
         columns: vec!["name"],
         source: InsertSource::Values(vec![vec!["'Bob'"]]),
+        on_conflict: None,
         returning: Some(Columns::Selected(vec!["id", "name"])),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob') RETURNING id, name");
@@ -973,6 +976,7 @@ fn test_insert_select_direct() {
         table: "archived_users",
         columns: vec!["name", "email"],
         source: InsertSource::Select(Box::new(select_query)),
+        on_conflict: None,
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users WHERE status = 'active'");
@@ -1277,6 +1281,7 @@ fn test_insert_multiple_columns_direct() {
         table: "users",
         columns: vec!["name", "email", "age"],
         source: InsertSource::Values(vec![vec!["'John'", "'john@example.com'", "30"]]),
+        on_conflict: None,
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email, age) VALUES ('John', 'john@example.com', 30)");
@@ -1292,6 +1297,7 @@ fn test_insert_multiple_rows_direct() {
             vec!["'Bob'", "25"],
             vec!["'Charlie'", "35"]
         ]),
+        on_conflict: None,
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Charlie', 35)");
@@ -1944,4 +1950,93 @@ fn test_direct_cte_construction() {
         for_update: false,
     };
     assert_eq!(query.sql(), "WITH cte1 AS (SELECT id FROM users) SELECT * FROM cte1");
+}
+
+// ON CONFLICT / UPSERT tests
+#[test]
+fn test_on_conflict_do_nothing() {
+    let mut ib = I("users");
+    let insert = ib.columns(vec!["email", "name"])
+        .values(vec!["'alice@example.com'", "'Alice'"])
+        .on_conflict_do_nothing(vec!["email"])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO NOTHING");
+}
+
+#[test]
+fn test_on_conflict_do_update() {
+    let mut ib = I("users");
+    let insert = ib.columns(vec!["email", "name"])
+        .values(vec!["'alice@example.com'", "'Alice'"])
+        .on_conflict_do_update(vec!["email"], vec![("name", "'Alice Updated'")])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO UPDATE SET name = 'Alice Updated'");
+}
+
+#[test]
+fn test_on_conflict_multiple_columns() {
+    let mut ib = I("products");
+    let insert = ib.columns(vec!["sku", "name", "price"])
+        .values(vec!["'ABC123'", "'Widget'", "19.99"])
+        .on_conflict_do_nothing(vec!["sku", "name"])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku, name) DO NOTHING");
+}
+
+#[test]
+fn test_on_conflict_do_update_multiple_columns() {
+    let mut ib = I("products");
+    let insert = ib.columns(vec!["sku", "name", "price"])
+        .values(vec!["'ABC123'", "'Widget'", "19.99"])
+        .on_conflict_do_update(vec!["sku"], vec![("name", "'Widget Updated'"), ("price", "24.99")])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku) DO UPDATE SET name = 'Widget Updated', price = 24.99");
+}
+
+#[test]
+fn test_on_conflict_with_returning() {
+    let mut ib = I("users");
+    let insert = ib.columns(vec!["email", "name"])
+        .values(vec!["'bob@example.com'", "'Bob'"])
+        .on_conflict_do_update(vec!["email"], vec![("name", "'Bob Updated'")])
+        .returning(Columns::Star)
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('bob@example.com', 'Bob') ON CONFLICT (email) DO UPDATE SET name = 'Bob Updated' RETURNING *");
+}
+
+#[test]
+fn test_on_conflict_enum_do_nothing() {
+    let on_conflict = OnConflict::DoNothing(vec!["email"]);
+    assert_eq!(on_conflict.sql(), "ON CONFLICT (email) DO NOTHING");
+}
+
+#[test]
+fn test_on_conflict_enum_do_update() {
+    let on_conflict = OnConflict::DoUpdate(vec!["email"], vec![("name", "'Updated'"), ("status", "'active'")]);
+    assert_eq!(on_conflict.sql(), "ON CONFLICT (email) DO UPDATE SET name = 'Updated', status = 'active'");
+}
+
+#[test]
+fn test_direct_on_conflict_construction() {
+    let insert = Insert {
+        table: "users",
+        columns: vec!["email", "name"],
+        source: InsertSource::Values(vec![vec!["'test@example.com'", "'Test'"]]),
+        on_conflict: Some(OnConflict::DoNothing(vec!["email"])),
+        returning: None,
+    };
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING");
+}
+
+#[test]
+fn test_on_conflict_with_multiple_rows() {
+    let mut ib = I("users");
+    let insert = ib.columns(vec!["email", "name"])
+        .rows(vec![
+            vec!["'alice@example.com'", "'Alice'"],
+            vec!["'bob@example.com'", "'Bob'"]
+        ])
+        .on_conflict_do_nothing(vec!["email"])
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice'), ('bob@example.com', 'Bob') ON CONFLICT (email) DO NOTHING");
 }
