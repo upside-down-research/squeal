@@ -1,4 +1,13 @@
-use crate::{Columns, Parameterized, PgParams, Sql};
+use crate::{Columns, Parameterized, PgParams, Query, Sql};
+
+/// Represents the source of data for an INSERT statement
+#[derive(Clone)]
+pub enum InsertSource<'a> {
+    /// Insert from literal values: VALUES (val1, val2, ...)
+    Values(Vec<&'a str>),
+    /// Insert from a SELECT query: SELECT ...
+    Select(Box<Query<'a>>),
+}
 
 /// The Insert struct is used to specify an insert query.
 /// The user is expect to construct the Insert object and then call the sql() method to
@@ -10,7 +19,7 @@ use crate::{Columns, Parameterized, PgParams, Sql};
 /// let result = Insert {
 ///    table: "table",
 ///    columns: vec!["a", "b"],
-///    values: vec!["1", "2"],
+///    source: InsertSource::Values(vec!["1", "2"]),
 ///    returning: None,
 /// }.sql();
 /// assert_eq!(result, "INSERT INTO table (a, b) VALUES (1, 2)");
@@ -24,8 +33,8 @@ pub struct Insert<'a> {
     pub table: &'a str,
     /// The columns to insert.
     pub columns: Vec<&'a str>,
-    /// The values to insert.
-    pub values: Vec<&'a str>,
+    /// The source of data (VALUES or SELECT)
+    pub source: InsertSource<'a>,
     /// Optional RETURNING clause columns
     pub returning: Option<Columns<'a>>,
 }
@@ -41,16 +50,26 @@ impl<'a> Sql for Insert<'a> {
             first = false;
             result.push_str(c.as_ref());
         }
-        result.push_str(") VALUES (");
-        let mut first = true;
-        for v in &self.values {
-            if !first {
-                result.push_str(", ");
+        result.push_str(") ");
+
+        // Handle source (VALUES or SELECT)
+        match &self.source {
+            InsertSource::Values(values) => {
+                result.push_str("VALUES (");
+                let mut first = true;
+                for v in values {
+                    if !first {
+                        result.push_str(", ");
+                    }
+                    first = false;
+                    result.push_str(v.as_ref());
+                }
+                result.push(')');
             }
-            first = false;
-            result.push_str(v.as_ref());
+            InsertSource::Select(query) => {
+                result.push_str(&query.sql());
+            }
         }
-        result.push(')');
 
         if self.returning.is_some() {
             result.push_str(&format!(" RETURNING {}", self.returning.as_ref().unwrap().sql()));
@@ -64,7 +83,7 @@ impl<'a> Sql for Insert<'a> {
 pub struct InsertBuilder<'a> {
     table: &'a str,
     columns: Vec<&'a str>,
-    values: Vec<&'a str>,
+    source: Option<InsertSource<'a>>,
     returning: Option<Columns<'a>>,
     params: PgParams,
 }
@@ -89,7 +108,7 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
     InsertBuilder {
         table,
         columns: Vec::new(),
-        values: Vec::new(),
+        source: None,
         returning: None,
         params: PgParams::new(),
     }
@@ -109,7 +128,7 @@ impl<'a> InsertBuilder<'a> {
         Insert {
             table: self.table,
             columns: self.columns.clone(),
-            values: self.values.clone(),
+            source: self.source.clone().unwrap_or(InsertSource::Values(Vec::new())),
             returning: self.returning.clone(),
         }
     }
@@ -138,11 +157,35 @@ impl<'a> InsertBuilder<'a> {
     /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob')");
     /// ```
     pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
-        for v in values {
-            self.values.push(v);
-        }
+        self.source = Some(InsertSource::Values(values));
         self
     }
+
+    /// Sets a SELECT query as the data source
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let subquery = Query {
+    ///     select: Some(Select::new(Columns::Selected(vec!["name", "email"]), None)),
+    ///     from: Some(FromSource::Table("active_users")),
+    ///     where_clause: None,
+    ///     group_by: None,
+    ///     having: None,
+    ///     order_by: None,
+    ///     limit: None,
+    ///     offset: None,
+    ///     for_update: false,
+    /// };
+    /// let mut ib = I("archived_users");
+    /// let insert = ib.columns(vec!["name", "email"]).select(subquery).build();
+    /// assert_eq!(insert.sql(), "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users");
+    /// ```
+    pub fn select(&'a mut self, query: Query<'a>) -> &'a mut InsertBuilder<'a> {
+        self.source = Some(InsertSource::Select(Box::new(query)));
+        self
+    }
+
     /// Sets the RETURNING clause
     ///
     /// # Example

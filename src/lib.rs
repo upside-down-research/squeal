@@ -3,7 +3,7 @@ pub mod queries;
 pub use queries::create_table::{CreateTable, TableBuilder, T};
 pub use queries::delete::{D, Delete, DeleteBuilder};
 pub use queries::drop_table::DropTable;
-pub use queries::insert::{I, Insert, InsertBuilder};
+pub use queries::insert::{I, Insert, InsertBuilder, InsertSource};
 pub use queries::select::{Columns, Select, SelectExpression};
 pub use queries::update::{U, Update, UpdateBuilder};
 

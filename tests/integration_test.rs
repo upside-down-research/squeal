@@ -864,7 +864,7 @@ fn test_insert_direct() {
     let insert = Insert {
         table: "users",
         columns: vec!["name", "email"],
-        values: vec!["'John'", "'john@example.com'"],
+        source: InsertSource::Values(vec!["'John'", "'john@example.com'"]),
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')");
@@ -875,7 +875,7 @@ fn test_insert_with_returning() {
     let insert = Insert {
         table: "users",
         columns: vec!["name"],
-        values: vec!["'Alice'"],
+        source: InsertSource::Values(vec!["'Alice'"]),
         returning: Some(Columns::Star),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice') RETURNING *");
@@ -886,7 +886,7 @@ fn test_insert_with_returning_columns() {
     let insert = Insert {
         table: "users",
         columns: vec!["name"],
-        values: vec!["'Bob'"],
+        source: InsertSource::Values(vec!["'Bob'"]),
         returning: Some(Columns::Selected(vec!["id", "name"])),
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Bob') RETURNING id, name");
@@ -920,6 +920,67 @@ fn test_insert_builder_param() {
         .values(vec![&p1, &p2])
         .build();
     assert_eq!(insert.sql(), "INSERT INTO users (name, email) VALUES ($1, $2)");
+}
+
+#[test]
+fn test_insert_select_direct() {
+    let select_query = Query {
+        select: Some(Select::new(Columns::Selected(vec!["name", "email"]), None)),
+        from: Some(FromSource::Table("active_users")),
+        where_clause: Some(eq("status", "'active'")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let insert = Insert {
+        table: "archived_users",
+        columns: vec!["name", "email"],
+        source: InsertSource::Select(Box::new(select_query)),
+        returning: None,
+    };
+    assert_eq!(insert.sql(), "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users WHERE status = 'active'");
+}
+
+#[test]
+fn test_insert_select_builder() {
+    let select_query = Query {
+        select: Some(Select::new(Columns::Star, None)),
+        from: Some(FromSource::Table("old_data")),
+        where_clause: Some(eq("archived", "true")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: Some(100),
+        offset: None,
+        for_update: false,
+    };
+    let mut ib = I("archive");
+    let insert = ib.columns(vec!["*"]).select(select_query).build();
+    assert_eq!(insert.sql(), "INSERT INTO archive (*) SELECT * FROM old_data WHERE archived = true LIMIT 100");
+}
+
+#[test]
+fn test_insert_select_with_returning() {
+    let select_query = Query {
+        select: Some(Select::new(Columns::Selected(vec!["user_id", "amount"]), None)),
+        from: Some(FromSource::Table("pending_transactions")),
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut ib = I("completed_transactions");
+    let insert = ib.columns(vec!["user_id", "amount"])
+        .select(select_query)
+        .returning(Columns::Selected(vec!["id", "user_id"]))
+        .build();
+    assert_eq!(insert.sql(), "INSERT INTO completed_transactions (user_id, amount) SELECT user_id, amount FROM pending_transactions RETURNING id, user_id");
 }
 
 // Tests for CreateTable and DropTable
@@ -1177,7 +1238,7 @@ fn test_insert_multiple_columns_direct() {
     let insert = Insert {
         table: "users",
         columns: vec!["name", "email", "age"],
-        values: vec!["'John'", "'john@example.com'", "30"],
+        source: InsertSource::Values(vec!["'John'", "'john@example.com'", "30"]),
         returning: None,
     };
     assert_eq!(insert.sql(), "INSERT INTO users (name, email, age) VALUES ('John', 'john@example.com', 30)");
