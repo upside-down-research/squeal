@@ -17,9 +17,10 @@ postgres-docker = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-postgres = "0.19.7"
+
 
 [dev-dependencies]
+postgres = "0.19.7"
 criterion = { version = "0.4", features = ["html_reports"] }
 testcontainers = { version = "0.15" }
 testcontainers-modules = { version = "0.2.1", features = ["postgres"] }
