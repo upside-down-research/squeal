@@ -3,8 +3,10 @@ use squeal::*;
 
 fn generate() -> String {
     let result = Query {
-        select: Some(Select::new(Columns::Selected(vec!["a", "b"]))),
-        from: Some("table"),
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["a", "b"]), None)),
+        from: Some(FromSource::Table("table")),
+        joins: vec![],
         where_clause: Some(Term::Condition(
             Box::new(Term::Atom("a")),
             Op::O("<>"),

@@ -10,7 +10,7 @@ repository = "https://gitlab.com/upside-down-research/oss/squeal"
 documentation = "https://docs.rs/squeal"
 authors= ["Upside Down Research"]
 rust-version = "1.90"
-categoried = ["database"]
+categories = ["database"]
 [features]
 postgres-docker = []
 
