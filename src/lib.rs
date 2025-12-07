@@ -102,7 +102,7 @@ impl<'a> Sql for Columns<'a> {
     fn sql(&self) -> String {
         match &self {
             Columns::Star => "*".to_string(),
-            Columns::Selected(v) => format!("{}", v.join(", ")),
+            Columns::Selected(v) => v.join(", ").to_string(),
         }
     }
 }
@@ -122,7 +122,7 @@ pub struct Select<'a> {
 }
 
 impl<'a> Select<'a> {
-    pub fn new(c: Columns) -> Select {
+    pub fn new(c: Columns<'a>) -> Select<'a> {
         Select { cols: c }
     }
 }
@@ -238,14 +238,14 @@ pub struct Having<'a> {
 }
 
 impl<'a> Having<'a> {
-    pub fn new(t: Term<'a>) -> Having {
+    pub fn new(t: Term<'a>) -> Having<'a> {
         Having { term: t }
     }
 }
 
 impl<'a> Sql for Having<'a> {
     fn sql(&self) -> String {
-        format!("{}", self.term.sql())
+        self.term.sql().to_string()
     }
 }
 
@@ -344,49 +344,49 @@ impl<'a> QueryBuilder<'a> {
     pub fn build(&self) -> Query<'a> {
         Query {
             select: self.select.clone(),
-            from: self.from.clone(),
+            from: self.from,
             where_clause: self.where_clause.clone(),
             group_by: self.group_by.clone(),
             having: self.having.clone(),
             order_by: self.order_by.clone(),
-            limit: self.limit.clone(),
-            offset: self.offset.clone(),
-            for_update: self.for_update.clone(),
+            limit: self.limit,
+            offset: self.offset,
+            for_update: self.for_update,
         }
     }
-    pub fn select(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
+    pub fn select(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.select = Some(Select::new(Columns::Selected(cols)));
         self
     }
-    pub fn from(&'a mut self, table: &'a str) -> &mut QueryBuilder {
+    pub fn from(&'a mut self, table: &'a str) -> &'a mut QueryBuilder<'a> {
         self.from = Some(table);
         self
     }
-    pub fn where_(&'a mut self, term: Term<'a>) -> &mut QueryBuilder {
+    pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
-    pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &mut QueryBuilder {
+    pub fn group_by(&'a mut self, cols: Vec<&'a str>) -> &'a mut QueryBuilder<'a> {
         self.group_by = Some(cols);
         self
     }
-    pub fn having(&'a mut self, term: Term<'a>) -> &mut QueryBuilder {
+    pub fn having(&'a mut self, term: Term<'a>) -> &'a mut QueryBuilder<'a> {
         self.having = Some(Having::new(term));
         self
     }
-    pub fn order_by(&'a mut self, cols: Vec<OrderedColumn<'a>>) -> &mut QueryBuilder {
+    pub fn order_by(&'a mut self, cols: Vec<OrderedColumn<'a>>) -> &'a mut QueryBuilder<'a> {
         self.order_by = Some(OrderBy { columns: cols });
         self
     }
-    pub fn limit(&'a mut self, limit: u64) -> &mut QueryBuilder {
+    pub fn limit(&'a mut self, limit: u64) -> &'a mut QueryBuilder<'a> {
         self.limit = Some(limit);
         self
     }
-    pub fn offset(&'a mut self, offset: u64) -> &mut QueryBuilder {
+    pub fn offset(&'a mut self, offset: u64) -> &'a mut QueryBuilder<'a> {
         self.offset = Some(offset);
         self
     }
-    pub fn for_update(&'a mut self) -> &mut QueryBuilder {
+    pub fn for_update(&'a mut self) -> &'a mut QueryBuilder<'a> {
         self.for_update = true;
         self
     }
@@ -443,9 +443,9 @@ impl<'a> Sql for CreateTable<'a> {
                 result.push_str(", ");
             }
             first = false;
-            result.push_str(&format!("{}", c));
+            result.push_str(&c.to_string());
         }
-        result.push_str(")");
+        result.push(')');
         result
     }
 }
@@ -464,41 +464,41 @@ impl<'a> Sql for DropTable<'a> {
 
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
-pub struct TableBuilder {
-    pub table: String,
+pub struct TableBuilder<'a> {
+    pub table: &'a str,
     pub columns: Vec<Vec<String>>,
 }
 
 /// Defines a fluent interface for building a Table.
 #[allow(non_snake_case)]
-pub fn T(s: &str) -> TableBuilder {
+pub fn T<'a>(s: &'a str) -> TableBuilder<'a> {
     TableBuilder {
-        table: s.to_string(),
+        table: s,
         columns: Vec::new(),
     }
 }
 
-impl TableBuilder {
-    pub fn build_create_table(&self) -> CreateTable {
+impl<'a> TableBuilder<'a> {
+    pub fn build_create_table(&self) -> CreateTable<'a> {
         let mut table_cols = Vec::new();
         for c in &self.columns {
             table_cols.push(c.join(" "));
         }
         CreateTable {
-            table: &self.table,
+            table: self.table,
             columns: table_cols,
         }
     }
-    pub fn build_drop_table(&self) -> DropTable {
+    pub fn build_drop_table(&self) -> DropTable<'a> {
         DropTable {
-            table: &self.table,
+            table: self.table,
         }
     }
-    pub fn table(&mut self, table: String) -> &mut TableBuilder {
-        self.table = table.clone();
+    pub fn table(&mut self, table: &'a str) -> &mut TableBuilder<'a> {
+        self.table = table;
         self
     }
-    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder {
+    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder<'a> {
         let mut col = vec![column, datatype];
         col.extend(other);
         let str_cols = col.iter().map(|s| s.to_string()).collect();
@@ -546,7 +546,7 @@ impl<'a> Sql for Insert<'a> {
                 result.push_str(", ");
             }
             first = false;
-            result.push_str(&format!("{}", c));
+            result.push_str(c.as_ref());
         }
         result.push_str(") VALUES (");
         let mut first = true;
@@ -555,9 +555,9 @@ impl<'a> Sql for Insert<'a> {
                 result.push_str(", ");
             }
             first = false;
-            result.push_str(&format!("{}", v));
+            result.push_str(v.as_ref());
         }
-        result.push_str(")");
+        result.push(')');
 
         if self.returning.is_some() {
             result.push_str(&format!(" RETURNING {}", self.returning.as_ref().unwrap().sql()));
@@ -592,7 +592,7 @@ pub struct InsertBuilder<'a> {
 #[allow(non_snake_case)]
 pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
     InsertBuilder {
-        table: &table,
+        table,
         columns: Vec::new(),
         values: Vec::new(),
         returning: None,
@@ -600,27 +600,27 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
 }
 
 impl<'a> InsertBuilder<'a> {
-    pub fn build(&self) -> Insert {
+    pub fn build(&self) -> Insert<'a> {
         Insert {
-            table: &self.table,
+            table: self.table,
             columns: self.columns.clone(),
             values: self.values.clone(),
             returning: self.returning.clone(),
         }
     }
-    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut InsertBuilder {
+    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
-    pub fn values(&'a mut self, values: Vec<&'a str>) -> &mut InsertBuilder {
+    pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
-    pub fn returning(&'a mut self, columns: Columns<'a>) -> &mut InsertBuilder {
+    pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut InsertBuilder<'a> {
         self.returning = Some(columns);
         self
     }
@@ -706,7 +706,7 @@ pub struct UpdateBuilder<'a> {
 #[allow(non_snake_case)]
 pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
     UpdateBuilder {
-        table: &table,
+        table,
         columns: Vec::new(),
         values: Vec::new(),
         from: None,
@@ -715,36 +715,36 @@ pub fn U<'a>(table: &'a str) -> UpdateBuilder<'a> {
     }
 }
 impl<'a> UpdateBuilder<'a> {
-    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &mut UpdateBuilder {
+    pub fn columns(&'a mut self, columns: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for c in columns {
             self.columns.push(c);
         }
         self
     }
-    pub fn values(&'a mut self, values: Vec<&'a str>) -> &mut UpdateBuilder {
+    pub fn values(&'a mut self, values: Vec<&'a str>) -> &'a mut UpdateBuilder<'a> {
         for v in values {
             self.values.push(v);
         }
         self
     }
-    pub fn from(&'a mut self, from: &'a str) -> &mut UpdateBuilder {
+    pub fn from(&'a mut self, from: &'a str) -> &'a mut UpdateBuilder<'a> {
         self.from = Some(from);
         self
     }
-    pub fn where_(&'a mut self, term: Term<'a>) -> &mut UpdateBuilder {
+    pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut UpdateBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
-    pub fn returning(&'a mut self, columns: Columns<'a>) -> &mut UpdateBuilder {
+    pub fn returning(&'a mut self, columns: Columns<'a>) -> &'a mut UpdateBuilder<'a> {
         self.returning = Some(columns);
         self
     }
-    pub fn build(&self) -> Update {
+    pub fn build(&self) -> Update<'a> {
         Update {
-            table: &self.table,
+            table: self.table,
             columns: self.columns.clone(),
             values: self.values.clone(),
-            from: self.from.clone(),
+            from: self.from,
             where_clause: self.where_clause.clone(),
             returning: self.returning.clone(),
         }
@@ -780,13 +780,13 @@ pub struct DeleteBuilder<'a> {
     where_clause: Option<Term<'a>>,
 }
 impl <'a> DeleteBuilder<'a> {
-    pub fn build(&self) -> Delete {
+    pub fn build(&self) -> Delete<'a> {
         Delete {
-            table: &self.table,
+            table: self.table,
             where_clause: self.where_clause.clone(),
         }
     }
-    pub fn where_(&'a mut self, term: Term<'a>) -> &mut DeleteBuilder {
+    pub fn where_(&'a mut self, term: Term<'a>) -> &'a mut DeleteBuilder<'a> {
         self.where_clause = Some(term);
         self
     }
@@ -798,7 +798,7 @@ impl <'a> DeleteBuilder<'a> {
 #[allow(non_snake_case)]
 pub fn D<'a>(table: &'a str) -> DeleteBuilder<'a> {
     DeleteBuilder {
-        table: &table,
+        table,
         where_clause: None,
     }
 }
