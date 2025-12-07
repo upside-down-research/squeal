@@ -24,9 +24,13 @@ A type-safe SQL query builder for Rust targeting PostgreSQL.
 ### Supported Operations
 
 - `SELECT` queries with WHERE, GROUP BY, HAVING, ORDER BY, LIMIT, OFFSET
-- `INSERT` statements with single or multiple value sets
+- `JOIN` operations (INNER, LEFT, RIGHT, FULL, CROSS) with table or subquery sources
+- `WITH` / Common Table Expressions (CTEs) for complex queries
+- `INSERT` statements with single or multiple value sets, or from SELECT queries
+- `INSERT ... ON CONFLICT` (UPSERT) with DO NOTHING or DO UPDATE
 - `UPDATE` statements with SET and WHERE clauses
 - `DELETE` statements with WHERE conditions
+- `RETURNING` clauses for INSERT, UPDATE, and DELETE
 - `CREATE TABLE` DDL statements
 - `DROP TABLE` DDL statements
 
@@ -50,11 +54,7 @@ use squeal::*;
 let query = Q()
     .select(vec!["id", "name", "email"])
     .from("users")
-    .where_(Term::Condition(
-        Box::new(Term::Atom("active")),
-        Op::Equals,
-        Box::new(Term::Atom("true"))
-    ))
+    .where_(eq("active", "true"))
     .order_by(vec![OrderedColumn::Desc("created_at")])
     .limit(10)
     .build();
@@ -79,11 +79,7 @@ assert_eq!(
 let update = U("users")
     .columns(vec!["status"])
     .values(vec!["'inactive'"])
-    .where_(Term::Condition(
-        Box::new(Term::Atom("last_login")),
-        Op::O("<"),
-        Box::new(Term::Atom("'2024-01-01'"))
-    ))
+    .where_(lt("last_login", "'2024-01-01'"))
     .build();
 
 assert_eq!(
@@ -93,11 +89,7 @@ assert_eq!(
 
 // DELETE with fluent builder
 let delete = D("logs")
-    .where_(Term::Condition(
-        Box::new(Term::Atom("created_at")),
-        Op::O("<"),
-        Box::new(Term::Atom("NOW() - INTERVAL '30 days'"))
-    ))
+    .where_(lt("created_at", "NOW() - INTERVAL '30 days'"))
     .build();
 ```
 
@@ -109,8 +101,10 @@ For maximum control, you can construct query structs directly:
 use squeal::*;
 
 let query = Query {
-    select: Some(Select::new(Columns::Star)),
-    from: Some("products"),
+    with_clause: None,
+    select: Some(Select::new(Columns::Star, None)),
+    from: Some(FromSource::Table("products")),
+    joins: vec![],
     where_clause: None,
     group_by: None,
     having: None,
@@ -130,14 +124,188 @@ Use custom operators and raw SQL fragments when needed:
 ```rust
 use squeal::*;
 
+// Use Op::O for custom PostgreSQL operators
+let custom_op = Term::Condition(
+    Box::new(Term::Atom("data")),
+    Op::O("@>"),  // PostgreSQL JSONB contains operator
+    Box::new(Term::Atom("'{\"type\": \"click\"}'"))
+);
+
 let query = Q()
     .select(vec!["*"])
     .from("events")
-    .where_(Term::Condition(
-        Box::new(Term::Atom("data")),
-        Op::O("@>"),  // PostgreSQL JSONB contains operator
-        Box::new(Term::Atom("'{\"type\": \"click\"}'"))
-    ))
+    .where_(custom_op)
+    .build();
+```
+
+## Advanced Features
+
+### JOINs
+
+Combine data from multiple tables with type-safe JOIN operations:
+
+```rust
+use squeal::*;
+
+// Find all users with their order count
+let query = Q()
+    .select(vec!["users.name", "users.email", "COUNT(orders.id) as order_count"])
+    .from("users")
+    .inner_join("orders", eq("users.id", "orders.user_id"))
+    .group_by(vec!["users.id", "users.name", "users.email"])
+    .order_by(vec![OrderedColumn::Desc("order_count")])
+    .build();
+
+// LEFT JOIN to include users with no orders
+let query_with_nulls = Q()
+    .select(vec!["users.name", "COALESCE(orders.total, 0) as total"])
+    .from("users")
+    .left_join("orders", eq("users.id", "orders.user_id"))
+    .build();
+```
+
+### Common Table Expressions (WITH clause)
+
+Build complex queries with CTEs for better readability:
+
+```rust
+use squeal::*;
+
+// Calculate monthly revenue and compare to average
+let monthly_revenue = Q()
+    .select(vec![
+        "DATE_TRUNC('month', created_at) as month",
+        "SUM(total) as revenue"
+    ])
+    .from("orders")
+    .group_by(vec!["month"])
+    .build();
+
+let query = Q()
+    .with("monthly_revenue", monthly_revenue)
+    .select(vec![
+        "month",
+        "revenue",
+        "(revenue - AVG(revenue) OVER ()) as diff_from_avg"
+    ])
+    .from("monthly_revenue")
+    .order_by(vec![OrderedColumn::Desc("month")])
+    .build();
+
+// Result: WITH monthly_revenue AS (SELECT ...) SELECT month, revenue, ...
+```
+
+### UPSERT (INSERT ... ON CONFLICT)
+
+Handle unique constraint violations gracefully:
+
+```rust
+use squeal::*;
+
+// Insert user, do nothing if email already exists
+let insert = I("users")
+    .columns(vec!["email", "name", "created_at"])
+    .values(vec!["'alice@example.com'", "'Alice'", "NOW()"])
+    .on_conflict_do_nothing(vec!["email"])
+    .build();
+
+// Result: INSERT INTO users (email, name, created_at) VALUES (...)
+//         ON CONFLICT (email) DO NOTHING
+
+// Insert or update: update the name if email exists
+let upsert = I("users")
+    .columns(vec!["email", "name", "login_count"])
+    .values(vec!["'bob@example.com'", "'Bob Smith'", "'1'"])
+    .on_conflict_do_update(
+        vec!["email"],
+        vec![
+            ("name", "'Bob Smith'"),
+            ("login_count", "users.login_count + 1"),
+            ("updated_at", "NOW()")
+        ]
+    )
+    .returning(Columns::Selected(vec!["id", "email", "updated_at"]))
+    .build();
+
+// Result: INSERT INTO users (...) VALUES (...)
+//         ON CONFLICT (email) DO UPDATE SET name = '...', login_count = ...
+//         RETURNING id, email, updated_at
+```
+
+### Multiple Row INSERT
+
+Efficiently insert multiple rows in a single statement:
+
+```rust
+use squeal::*;
+
+let insert = I("products")
+    .columns(vec!["name", "price", "category"])
+    .rows(vec![
+        vec!["'Laptop'", "'999.99'", "'electronics'"],
+        vec!["'Mouse'", "'24.99'", "'electronics'"],
+        vec!["'Desk'", "'299.99'", "'furniture'"],
+    ])
+    .returning(Columns::Selected(vec!["id", "name"]))
+    .build();
+
+// Result: INSERT INTO products (name, price, category) VALUES
+//         ('Laptop', 999.99, 'electronics'),
+//         ('Mouse', 24.99, 'electronics'),
+//         ('Desk', 299.99, 'furniture')
+//         RETURNING id, name
+```
+
+### INSERT ... SELECT
+
+Copy data from one table to another:
+
+```rust
+use squeal::*;
+
+// Archive old orders
+let select_old_orders = Q()
+    .select(vec!["id", "user_id", "total", "created_at"])
+    .from("orders")
+    .where_(lt("created_at", "'2023-01-01'"))
+    .build();
+
+let archive = I("orders_archive")
+    .columns(vec!["order_id", "user_id", "total", "order_date"])
+    .select(select_old_orders)
+    .build();
+
+// Result: INSERT INTO orders_archive (order_id, user_id, total, order_date)
+//         SELECT id, user_id, total, created_at FROM orders
+//         WHERE created_at < '2023-01-01'
+```
+
+### RETURNING Clause
+
+Get values from INSERT, UPDATE, or DELETE operations:
+
+```rust
+use squeal::*;
+
+// Get the auto-generated ID after insert
+let insert = I("posts")
+    .columns(vec!["title", "content", "author_id"])
+    .values(vec!["'Hello World'", "'First post!'", "'1'"])
+    .returning(Columns::Selected(vec!["id", "created_at"]))
+    .build();
+
+// Update and return the modified rows
+let update = U("users")
+    .columns(vec!["status", "updated_at"])
+    .values(vec!["'inactive'", "NOW()"])
+    .where_(lt("last_login", "NOW() - INTERVAL '1 year'"))
+    .returning(Columns::Selected(vec!["id", "email"]))
+    .build();
+
+// Delete and track what was removed
+let delete = D("sessions")
+    .where_(lt("expires_at", "NOW()"))
+    .returning(Columns::Selected(vec!["user_id", "session_id"]))
     .build();
 ```
 

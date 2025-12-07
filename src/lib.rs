@@ -1,3 +1,209 @@
+//! # squeal - Type-Safe SQL Query Builder for PostgreSQL
+//!
+//! **squeal** is a lightweight, type-safe SQL query builder for Rust that targets PostgreSQL.
+//! It provides both fluent builder APIs and direct struct construction for maximum flexibility.
+//!
+//! ## Philosophy
+//!
+//! - **Keep it simple** - No macros, no magic, just Rust types
+//! - **Type-safe** - Catch errors at compile time, not runtime
+//! - **Escape hatches** - Custom operators and raw SQL when you need them
+//! - **Zero overhead** - Queries are built at compile time
+//!
+//! ## Quick Start
+//!
+//! ```
+//! use squeal::*;
+//!
+//! // Build a SELECT query with the fluent API
+//! let mut qb = Q();
+//! let query = qb.select(vec!["id", "name", "email"])
+//!     .from("users")
+//!     .where_(eq("active", "true"))
+//!     .order_by(vec![OrderedColumn::Desc("created_at")])
+//!     .limit(10)
+//!     .build();
+//!
+//! assert_eq!(
+//!     query.sql(),
+//!     "SELECT id, name, email FROM users WHERE active = true ORDER BY created_at DESC LIMIT 10"
+//! );
+//! ```
+//!
+//! ## Core Concepts
+//!
+//! ### Fluent Builders
+//!
+//! All query types have builder functions with short, memorable names:
+//! - `Q()` - Build SELECT queries
+//! - `I(table)` - Build INSERT statements
+//! - `U(table)` - Build UPDATE statements
+//! - `D(table)` - Build DELETE statements
+//! - `T(table)` - Build CREATE/DROP TABLE DDL
+//!
+//! ### Terms and Conditions
+//!
+//! The `Term` enum represents WHERE clause conditions. Use helper functions
+//! for common patterns:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! // Simple equality: active = true
+//! let simple = eq("active", "true");
+//!
+//! // Complex conditions with AND/OR
+//! let complex = Term::Condition(
+//!     Box::new(eq("status", "'published'")),
+//!     Op::And,
+//!     Box::new(gt("views", "1000"))
+//! );
+//!
+//! let mut qb = Q();
+//! let query = qb.select(vec!["title", "views"])
+//!     .from("posts")
+//!     .where_(complex)
+//!     .build();
+//!
+//! assert_eq!(
+//!     query.sql(),
+//!     "SELECT title, views FROM posts WHERE status = 'published' AND views > 1000"
+//! );
+//! ```
+//!
+//! ## Advanced Features
+//!
+//! ### JOINs
+//!
+//! All standard JOIN types are supported:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! let mut qb = Q();
+//! let query = qb.select(vec!["users.name", "COUNT(orders.id) as order_count"])
+//!     .from("users")
+//!     .left_join("orders", eq("users.id", "orders.user_id"))
+//!     .group_by(vec!["users.id", "users.name"])
+//!     .order_by(vec![OrderedColumn::Desc("order_count")])
+//!     .build();
+//!
+//! assert_eq!(
+//!     query.sql(),
+//!     "SELECT users.name, COUNT(orders.id) as order_count FROM users LEFT JOIN orders ON users.id = orders.user_id GROUP BY users.id, users.name ORDER BY order_count DESC"
+//! );
+//! ```
+//!
+//! ### Common Table Expressions (WITH)
+//!
+//! Build complex queries with CTEs for better readability:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! // Define a CTE to find high-value customers
+//! let mut qb1 = Q();
+//! let high_value = qb1.select(vec!["user_id", "SUM(total) as lifetime_value"])
+//!     .from("orders")
+//!     .group_by(vec!["user_id"])
+//!     .having(gt("SUM(total)", "1000"))
+//!     .build();
+//!
+//! // Use the CTE in the main query
+//! let mut qb2 = Q();
+//! let query = qb2.with("high_value_customers", high_value)
+//!     .select(vec!["users.name", "hvc.lifetime_value"])
+//!     .from("users")
+//!     .inner_join("high_value_customers hvc", eq("users.id", "hvc.user_id"))
+//!     .order_by(vec![OrderedColumn::Desc("hvc.lifetime_value")])
+//!     .build();
+//!
+//! assert_eq!(
+//!     query.sql(),
+//!     "WITH high_value_customers AS (SELECT user_id, SUM(total) as lifetime_value FROM orders GROUP BY user_id HAVING SUM(total) > 1000) SELECT users.name, hvc.lifetime_value FROM users INNER JOIN high_value_customers hvc ON users.id = hvc.user_id ORDER BY hvc.lifetime_value DESC"
+//! );
+//! ```
+//!
+//! ### UPSERT (INSERT ... ON CONFLICT)
+//!
+//! Handle unique constraint violations gracefully:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! // Insert or update user login count
+//! let mut ib = I("users");
+//! let upsert = ib.columns(vec!["email", "name", "login_count"])
+//!     .values(vec!["'alice@example.com'", "'Alice'", "'1'"])
+//!     .on_conflict_do_update(
+//!         vec!["email"],
+//!         vec![
+//!             ("login_count", "users.login_count + 1"),
+//!             ("last_login", "NOW()")
+//!         ]
+//!     )
+//!     .returning(Columns::Selected(vec!["id", "login_count"]))
+//!     .build();
+//!
+//! assert_eq!(
+//!     upsert.sql(),
+//!     "INSERT INTO users (email, name, login_count) VALUES ('alice@example.com', 'Alice', '1') ON CONFLICT (email) DO UPDATE SET login_count = users.login_count + 1, last_login = NOW() RETURNING id, login_count"
+//! );
+//! ```
+//!
+//! ### RETURNING Clauses
+//!
+//! Get auto-generated values and track modifications:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! // Get the ID of newly inserted row
+//! let mut ib = I("posts");
+//! let insert = ib.columns(vec!["title", "content"])
+//!     .values(vec!["'Hello World'", "'My first post'"])
+//!     .returning(Columns::Selected(vec!["id", "created_at"]))
+//!     .build();
+//!
+//! assert_eq!(
+//!     insert.sql(),
+//!     "INSERT INTO posts (title, content) VALUES ('Hello World', 'My first post') RETURNING id, created_at"
+//! );
+//!
+//! // Track what was deleted
+//! let mut db = D("old_logs");
+//! let delete = db.where_(lt("created_at", "NOW() - INTERVAL '90 days'"))
+//!     .returning(Columns::Selected(vec!["id", "created_at"]))
+//!     .build();
+//!
+//! assert_eq!(
+//!     delete.sql(),
+//!     "DELETE FROM old_logs WHERE created_at < NOW() - INTERVAL '90 days' RETURNING id, created_at"
+//! );
+//! ```
+//!
+//! ## Parameterized Queries
+//!
+//! Use the `Parameterized` trait for prepared statements:
+//!
+//! ```
+//! use squeal::*;
+//!
+//! let mut qb = Q();
+//! let param = qb.param();
+//! let query = qb.select(vec!["*"])
+//!     .from("users")
+//!     .where_(eq("email", &param))
+//!     .build();
+//!
+//! assert_eq!(query.sql(), "SELECT * FROM users WHERE email = $1");
+//! ```
+//!
+//! ## More Information
+//!
+//! See the [README](https://github.com/upside-down-research/squeal) for complete documentation
+//! and examples.
+
 pub mod queries;
 
 pub use queries::create_table::{CreateTable, TableBuilder, T};
