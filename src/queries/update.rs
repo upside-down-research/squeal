@@ -50,7 +50,7 @@ impl<'a> Sql for Update<'a> {
 /// See the integration_test.rs for an example of usage.
 pub struct UpdateBuilder<'a> {
     table: &'a str,
-    columns: Vec<&'a str >,
+    columns: Vec<&'a str>,
     values: Vec<&'a str>,
     from: Option<&'a str>,
     where_clause: Option<Term<'a>>,

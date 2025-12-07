@@ -58,12 +58,11 @@ impl<'a> Sql for Columns<'a> {
         match &self {
             Columns::Star => "*".to_string(),
             Columns::Selected(v) => v.join(", ").to_string(),
-            Columns::Expressions(exprs) => {
-                exprs.iter()
-                    .map(|e| e.sql())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-            }
+            Columns::Expressions(exprs) => exprs
+                .iter()
+                .map(|e| e.sql())
+                .collect::<Vec<String>>()
+                .join(", "),
         }
     }
 }
@@ -94,7 +93,10 @@ impl<'a> Select<'a> {
     /// assert_eq!(select.sql(), "*");
     /// ```
     pub fn new(c: Columns<'a>, d: Option<Distinct<'a>>) -> Select<'a> {
-        Select { cols: c, distinct: d }
+        Select {
+            cols: c,
+            distinct: d,
+        }
     }
 }
 
