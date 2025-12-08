@@ -2,7 +2,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use squeal::*;
 
 fn generate() -> String {
-    let result = Query {
+    Query {
         with_clause: None,
         select: Some(Select::new(Columns::Selected(vec!["a", "b"]), None)),
         from: Some(FromSource::Table("table")),
@@ -25,8 +25,7 @@ fn generate() -> String {
         offset: Some(10),
         for_update: false,
     }
-    .sql();
-    result
+    .sql()
 }
 
 fn fluent_generation() -> String {
