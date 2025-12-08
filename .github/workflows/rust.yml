@@ -11,7 +11,7 @@ env:
 
 jobs:
   msrv:
-    name: Minimum Supported Rust Version (1.90)
+    name: Cargo Check with MSRV
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,11 +58,11 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
           components: clippy
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo +1.90 clippy --all-targets --all-features -- -D warnings
 
   test:
     name: Test
