@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust 1.90
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.90"
       - uses: actions/cache@v4
@@ -29,7 +29,7 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
       - name: Check with MSRV
-        run: cargo +1.90 check --all-targets --all-features
+        run: cargo check --all-targets --all-features
 
   fmt:
     name: Format Check
@@ -40,6 +40,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
+          toolchain: "1.90"
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -58,11 +59,12 @@ jobs:
             target/
           key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          toolchain: "1.90"
       - name: Run clippy
-        run: cargo +1.90 clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   test:
     name: Test
