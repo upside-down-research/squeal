@@ -2391,3 +2391,357 @@ fn test_substring_with_from_and_for() {
     .sql();
     assert_eq!(result, "SUBSTRING(name FROM 1 FOR 5)");
 }
+// ============================================================================
+// COVERAGE IMPROVEMENT TESTS - Target 95%
+// ============================================================================
+
+// Test CTE (Common Table Expressions) - covers line 909
+#[test]
+fn test_cte_with_clause() {
+    let cte_query = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("users")),
+        joins: vec![],
+        where_clause: Some(eq("active", "true")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+
+    let cte = Cte {
+        name: "active_users",
+        query: Box::new(cte_query),
+    };
+
+    // This exercises the Cte::sql() method at line 909
+    let cte_sql = cte.sql();
+    assert_eq!(
+        cte_sql,
+        "active_users AS (SELECT id, name FROM users WHERE active = true)"
+    );
+}
+
+// Test select_expressions - covers line 1103
+#[test]
+fn test_query_select_expressions() {
+    let subquery = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["COUNT(*)"]), None)),
+        from: Some(FromSource::Table("orders")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+
+    let mut qb = Q();
+    let query = qb
+        .select_expressions(vec![
+            SelectExpression::Column("id"),
+            SelectExpression::Subquery(Box::new(subquery), Some("order_count")),
+        ])
+        .from("users")
+        .build();
+
+    assert_eq!(
+        query.sql(),
+        "SELECT id, (SELECT COUNT(*) FROM orders) AS order_count FROM users"
+    );
+}
+
+// Test from_subquery - covers line 1162
+#[test]
+fn test_query_from_subquery() {
+    let subquery = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id", "name"]), None)),
+        from: Some(FromSource::Table("all_users")),
+        joins: vec![],
+        where_clause: Some(eq("active", "true")),
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+
+    let mut qb = Q();
+    let query = qb
+        .select(vec!["*"])
+        .from_subquery(subquery, "active_users")
+        .build();
+
+    assert_eq!(
+        query.sql(),
+        "SELECT * FROM (SELECT id, name FROM all_users WHERE active = true) AS active_users"
+    );
+}
+
+// Test and_where - covers line 1330
+#[test]
+fn test_query_and_where() {
+    let mut qb = Q();
+    let query = qb
+        .select(vec!["*"])
+        .from("users")
+        .where_(eq("active", "true"))
+        .and_where(gt("age", "18"))
+        .build();
+
+    assert_eq!(
+        query.sql(),
+        "SELECT * FROM users WHERE active = true AND age > 18"
+    );
+}
+
+// Test where_opt with Some - covers line 1321
+#[test]
+fn test_query_where_opt_some() {
+    let mut qb = Q();
+    let query = qb
+        .select(vec!["*"])
+        .from("users")
+        .where_opt(Some(eq("active", "true")))
+        .build();
+
+    assert_eq!(query.sql(), "SELECT * FROM users WHERE active = true");
+}
+
+// Test where_opt with None
+#[test]
+fn test_query_where_opt_none() {
+    let mut qb = Q();
+    let query = qb.select(vec!["*"]).from("users").where_opt(None).build();
+
+    assert_eq!(query.sql(), "SELECT * FROM users");
+}
+
+// Test INSERT rows() method - covers line 251
+#[test]
+fn test_insert_rows_method() {
+    let mut ib = I("users");
+    let insert = ib
+        .columns(vec!["name", "age"])
+        .rows(vec![vec!["'Alice'", "30"], vec!["'Bob'", "25"]])
+        .build();
+
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25)"
+    );
+}
+
+// Test INSERT select() method - covers line 278
+#[test]
+fn test_insert_select_method() {
+    let subquery = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["name", "email"]), None)),
+        from: Some(FromSource::Table("active_users")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+
+    let mut ib = I("archived_users");
+    let insert = ib.columns(vec!["name", "email"]).select(subquery).build();
+
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users"
+    );
+}
+
+// Test INSERT on_conflict_do_nothing - covers line 292
+#[test]
+fn test_insert_on_conflict_do_nothing_method() {
+    let mut ib = I("users");
+    let insert = ib
+        .columns(vec!["email", "name"])
+        .values(vec!["'test@example.com'", "'Test'"])
+        .on_conflict_do_nothing(vec!["email"])
+        .build();
+
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING");
+}
+
+// Test INSERT on_conflict_do_update - covers line 312
+#[test]
+fn test_insert_on_conflict_do_update_method() {
+    let mut ib = I("users");
+    let insert = ib
+        .columns(vec!["email", "name"])
+        .values(vec!["'test@example.com'", "'Test'"])
+        .on_conflict_do_update(vec!["email"], vec![("name", "EXCLUDED.name")])
+        .build();
+
+    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name");
+}
+
+// Test UPDATE columns/values separately - covers lines 117, 132
+#[test]
+fn test_update_columns_values_separate() {
+    let mut ub = U("users");
+    let update = ub
+        .columns(vec!["name", "email"])
+        .values(vec!["'John'", "'john@example.com'"])
+        .build();
+
+    assert_eq!(
+        update.sql(),
+        "UPDATE users SET name = 'John', email = 'john@example.com'"
+    );
+}
+
+// Test UPDATE from() - covers line 145
+#[test]
+fn test_update_from_method() {
+    let mut ub = U("users");
+    let update = ub
+        .set(vec![("active", "false")])
+        .from("banned")
+        .where_(eq("users.id", "banned.user_id"))
+        .build();
+
+    assert_eq!(
+        update.sql(),
+        "UPDATE users SET active = false FROM banned WHERE users.id = banned.user_id"
+    );
+}
+
+// Test UPDATE where_() - covers line 158
+#[test]
+fn test_update_where_method() {
+    let mut ub = U("users");
+    let update = ub
+        .set(vec![("active", "false")])
+        .where_(eq("id", "5"))
+        .build();
+
+    assert_eq!(update.sql(), "UPDATE users SET active = false WHERE id = 5");
+}
+
+// Test UPDATE returning() - covers line 171
+#[test]
+fn test_update_returning_method() {
+    let mut ub = U("users");
+    let update = ub
+        .set(vec![("status", "'active'")])
+        .returning(Columns::Selected(vec!["id", "status"]))
+        .build();
+
+    assert_eq!(
+        update.sql(),
+        "UPDATE users SET status = 'active' RETURNING id, status"
+    );
+}
+
+// Test DELETE where_() - covers line 75
+#[test]
+fn test_delete_where_method() {
+    let mut db = D("users");
+    let delete = db.where_(eq("id", "10")).build();
+
+    assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 10");
+}
+
+// Test DELETE returning() - covers line 89
+#[test]
+fn test_delete_returning_method() {
+    let mut db = D("users");
+    let delete = db.where_(eq("id", "10")).returning(Columns::Star).build();
+
+    assert_eq!(delete.sql(), "DELETE FROM users WHERE id = 10 RETURNING *");
+}
+
+// ============================================================================
+// DIRECT STRUCT CONSTRUCTION TESTS - For tarpaulin coverage
+// ============================================================================
+
+#[test]
+fn test_join_type_inner_sql() {
+    let join = Join {
+        join_type: JoinType::Inner,
+        source: FromSource::Table("orders"),
+        on: Some(eq("users.id", "orders.user_id")),
+    };
+    let sql = join.sql();
+    assert!(sql.contains("INNER JOIN"));
+}
+
+#[test]
+fn test_join_type_left_sql() {
+    let join = Join {
+        join_type: JoinType::Left,
+        source: FromSource::Table("orders"),
+        on: Some(eq("users.id", "orders.user_id")),
+    };
+    let sql = join.sql();
+    assert!(sql.contains("LEFT JOIN"));
+}
+
+#[test]
+fn test_join_type_right_sql() {
+    let join = Join {
+        join_type: JoinType::Right,
+        source: FromSource::Table("orders"),
+        on: Some(eq("users.id", "orders.user_id")),
+    };
+    let sql = join.sql();
+    assert!(sql.contains("RIGHT JOIN"));
+}
+
+#[test]
+fn test_join_type_full_sql() {
+    let join = Join {
+        join_type: JoinType::Full,
+        source: FromSource::Table("orders"),
+        on: Some(eq("users.id", "orders.user_id")),
+    };
+    let sql = join.sql();
+    assert!(sql.contains("FULL JOIN"));
+}
+
+#[test]
+fn test_join_type_cross_sql() {
+    let join = Join {
+        join_type: JoinType::Cross,
+        source: FromSource::Table("colors"),
+        on: None,
+    };
+    let sql = join.sql();
+    assert!(sql.contains("CROSS JOIN"));
+}
+
+#[test]
+fn test_having_sql_direct() {
+    let having = Having::new(gt("COUNT(*)", "5"));
+    let sql = having.sql();
+    assert_eq!(sql, "COUNT(*) > 5");
+}
+
+#[test]
+fn test_order_by_sql_direct() {
+    let order_by = OrderBy {
+        columns: vec![
+            OrderedColumn::Asc("name"),
+            OrderedColumn::Desc("created_at"),
+        ],
+    };
+    let sql = order_by.sql();
+    assert_eq!(sql, "ORDER BY name ASC, created_at DESC");
+}
