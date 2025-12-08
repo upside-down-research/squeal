@@ -15,11 +15,11 @@ A type-safe SQL query builder for Rust targeting PostgreSQL.
 
 ## Features
 
-- 🔒 **Type-safe query construction** - Catch errors at compile time
-- 🔨 **Fluent builder API** - Chain methods for readable query construction
-- 📦 **Direct struct construction** - Full control when needed
-- 🎯 **PostgreSQL targeting** - Optimized for PostgreSQL dialect
-- 🚀 **Zero runtime overhead** - Queries are built, not interpreted
+- **Type-safe query construction** - Catch errors at compile time
+- **Fluent builder API** - Chain methods for readable query construction
+- **Direct struct construction** - Full control when needed
+- **PostgreSQL targeting** - Designed for PostgreSQL dialect
+- **Zero ORM runtime overhead** - Queries are built, not interpreted.
 
 ### Supported Operations
 
@@ -40,10 +40,10 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-squeal = "0.0.6"
+squeal = "0.1.0"
 ```
 
-**MSRV**: Rust 1.75.0
+**MSRV**: Rust 1.90.0
 
 ## Quick Start
 
@@ -342,9 +342,35 @@ cargo clippy --fix --lib -p squeal
 
 ## Project Status
 
-**Version**: 0.0.6 (pre-release)
+**Version**: 0.1.0 (pre-release)
 
-This library is in active development. The API is stabilizing but may still change. It is suitable for experimentation and early adoption, but not recommended for production use until version 1.0.
+This library is in active development. The API is stabilizing but may
+still change. It is suitable for experimentation and early adoption,
+but not recommended for production use until version 1.0.
+
+## Design Notes
+
+A core problem of using SQL in programming is the impedence mismatch
+between the code of the database and the code of the client.
+
+Efforts such as `ActiveRecord` exist; they are widely panned by SQL
+experts as producing poor SQL and tend not to "fit" the database
+itself. Writing SQL directly in code has also a poor history - it is
+notorious for defects and difficulty in maintaining.
+
+_Query builders_ occupy a middle point, where the power of the
+programming language brings to bear some maintainability, but the
+intermediate artifact is still recognizable and controllable by the
+programmer, leading to a fit with the database.
+
+This is my contribution in this effort; I developed a Scala query
+builder for a company quite a few years ago now and it worked well. I
+am pleased to offer a ground-up cleanroom Rust query builder.
+
+The core problem this design does not touch is the object-relation
+mapping code. I would advise users to write a database model layer,
+perform the object-relation map there, then transform into the usual
+in-system state from that point out.
 
 ## Related Projects
 
@@ -353,7 +379,7 @@ This library is in active development. The API is stabilizing but may still chan
 
 ## Repository
 
-- **GitLab**: https://gitlab.com/upside-down-research/oss/squeal
+- **GitHub**: https://github.com/upside-down-research/squeal
 
 ## License
 
@@ -365,6 +391,14 @@ Contributions are welcome! Please ensure:
 - All tests pass (`cargo test`)
 - No clippy warnings (`cargo clippy`)
 - New features include tests
+- No decrease in code coverage (tarpaulin).
 - Code follows the existing style
+- Idealy no dependencies are taken outside of dev-dependencies.
+- No unsafe code.
 
-For more detailed development guidelines, see [CLAUDE.md](CLAUDE.md).
+
+### AI Note.
+
+This library was hand written, and later AI was asked to extend it. A
+human contributing _takes responsibility_for their code, whether or
+not an AI was involved.
