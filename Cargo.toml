@@ -9,8 +9,8 @@ readme = "README.md"
 repository = "https://gitlab.com/upside-down-research/oss/squeal"
 documentation = "https://docs.rs/squeal"
 authors= ["Upside Down Research"]
-rust-version = "1.75.0"
-categoried = ["database"]
+rust-version = "1.90"
+categories = ["database"]
 [features]
 postgres-docker = []
 

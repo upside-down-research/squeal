@@ -44,7 +44,7 @@ pub struct DeleteBuilder<'a> {
     returning: Option<Columns<'a>>,
     params: PgParams,
 }
-impl <'a> DeleteBuilder<'a> {
+impl<'a> DeleteBuilder<'a> {
     /// Builds the final Delete statement
     ///
     /// # Example

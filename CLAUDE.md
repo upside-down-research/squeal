@@ -5,7 +5,7 @@
 **squeal** is a SQL query builder library for Rust targeting PostgreSQL. It provides a type-safe way to construct SQL queries using Rust structures, with both direct struct construction and fluent builder APIs.
 
 - **Version**: 0.0.6 (pre-release)
-- **MSRV**: Rust 1.75.0
+- **MSRV**: Rust 1.90
 - **License**: LGPL 3.0 or later
 - **Repository**: https://gitlab.com/upside-down-research/oss/squeal
 

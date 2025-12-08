@@ -207,11 +207,11 @@
 pub mod queries;
 
 pub use queries::create_table::{CreateTable, TableBuilder, T};
-pub use queries::delete::{D, Delete, DeleteBuilder};
+pub use queries::delete::{Delete, DeleteBuilder, D};
 pub use queries::drop_table::DropTable;
-pub use queries::insert::{I, Insert, InsertBuilder, InsertSource, OnConflict};
+pub use queries::insert::{Insert, InsertBuilder, InsertSource, OnConflict, I};
 pub use queries::select::{Columns, Select, SelectExpression};
-pub use queries::update::{U, Update, UpdateBuilder};
+pub use queries::update::{Update, UpdateBuilder, U};
 
 /// The Sql trait is implemented by all objects that can be used in a query.
 /// It provides a single method, sql(), that returns a String.
@@ -563,16 +563,8 @@ pub fn concat<'a>(terms: Vec<Term<'a>>) -> Term<'a> {
 }
 
 /// Creates a SUBSTRING expression
-pub fn substring<'a>(
-    term: Term<'a>,
-    from: Option<Term<'a>>,
-    for_: Option<Term<'a>>,
-) -> Term<'a> {
-    Term::Substring(
-        Box::new(term),
-        from.map(Box::new),
-        for_.map(Box::new),
-    )
+pub fn substring<'a>(term: Term<'a>, from: Option<Term<'a>>, for_: Option<Term<'a>>) -> Term<'a> {
+    Term::Substring(Box::new(term), from.map(Box::new), for_.map(Box::new))
 }
 
 /// Creates a UPPER expression
@@ -1161,7 +1153,11 @@ impl<'a> QueryBuilder<'a> {
     /// let query = qb.select(vec!["*"]).from_subquery(subquery, "u").build();
     /// assert_eq!(query.sql(), "SELECT * FROM (SELECT * FROM users) AS u");
     /// ```
-    pub fn from_subquery(&'a mut self, subquery: Query<'a>, alias: &'a str) -> &'a mut QueryBuilder<'a> {
+    pub fn from_subquery(
+        &'a mut self,
+        subquery: Query<'a>,
+        alias: &'a str,
+    ) -> &'a mut QueryBuilder<'a> {
         self.from = Some(FromSource::Subquery(Box::new(subquery), alias));
         self
     }

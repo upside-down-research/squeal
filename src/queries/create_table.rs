@@ -24,7 +24,6 @@ impl<'a> Sql for CreateTable<'a> {
     }
 }
 
-
 /// The TableBuilder struct is a fluent interface for building a Table.
 /// Tables can be built into DROP or CREATE forms.
 pub struct TableBuilder<'a> {
@@ -73,9 +72,7 @@ impl<'a> TableBuilder<'a> {
     /// assert_eq!(drop.sql(), "DROP TABLE users");
     /// ```
     pub fn build_drop_table(&self) -> DropTable<'a> {
-        DropTable {
-            table: self.table,
-        }
+        DropTable { table: self.table }
     }
     /// Changes the table name
     ///
@@ -101,7 +98,12 @@ impl<'a> TableBuilder<'a> {
     ///     .build_create_table();
     /// assert_eq!(create.sql(), "CREATE TABLE users (id serial PRIMARY KEY)");
     /// ```
-    pub fn column(&mut self, column: &str, datatype: &str, other: Vec<&str>) -> &mut TableBuilder<'a> {
+    pub fn column(
+        &mut self,
+        column: &str,
+        datatype: &str,
+        other: Vec<&str>,
+    ) -> &mut TableBuilder<'a> {
         let mut col = vec![column, datatype];
         col.extend(other);
         let str_cols = col.iter().map(|s| s.to_string()).collect();

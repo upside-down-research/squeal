@@ -133,7 +133,10 @@ impl<'a> Sql for Insert<'a> {
         }
 
         if self.returning.is_some() {
-            result.push_str(&format!(" RETURNING {}", self.returning.as_ref().unwrap().sql()));
+            result.push_str(&format!(
+                " RETURNING {}",
+                self.returning.as_ref().unwrap().sql()
+            ));
         }
 
         result
@@ -191,7 +194,10 @@ impl<'a> InsertBuilder<'a> {
         Insert {
             table: self.table,
             columns: self.columns.clone(),
-            source: self.source.clone().unwrap_or(InsertSource::Values(vec![Vec::new()])),
+            source: self
+                .source
+                .clone()
+                .unwrap_or(InsertSource::Values(vec![Vec::new()])),
             on_conflict: self.on_conflict.clone(),
             returning: self.returning.clone(),
         }
@@ -298,7 +304,10 @@ impl<'a> InsertBuilder<'a> {
     ///     .build();
     /// assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO NOTHING");
     /// ```
-    pub fn on_conflict_do_nothing(&'a mut self, columns: Vec<&'a str>) -> &'a mut InsertBuilder<'a> {
+    pub fn on_conflict_do_nothing(
+        &'a mut self,
+        columns: Vec<&'a str>,
+    ) -> &'a mut InsertBuilder<'a> {
         self.on_conflict = Some(OnConflict::DoNothing(columns));
         self
     }
@@ -315,7 +324,11 @@ impl<'a> InsertBuilder<'a> {
     ///     .build();
     /// assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO UPDATE SET name = 'Alice Updated'");
     /// ```
-    pub fn on_conflict_do_update(&'a mut self, conflict_columns: Vec<&'a str>, updates: Vec<(&'a str, &'a str)>) -> &'a mut InsertBuilder<'a> {
+    pub fn on_conflict_do_update(
+        &'a mut self,
+        conflict_columns: Vec<&'a str>,
+        updates: Vec<(&'a str, &'a str)>,
+    ) -> &'a mut InsertBuilder<'a> {
         self.on_conflict = Some(OnConflict::DoUpdate(conflict_columns, updates));
         self
     }
