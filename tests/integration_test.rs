@@ -216,7 +216,8 @@ fn generate_random_string(len: usize) -> String {
 #[cfg_attr(not(feature = "postgres-docker"), ignore)]
 fn create_table_insert_data_query_it() -> Result<(), String> {
     let mut harness = DockerTests::new();
-    let (_, mut conn) = harness.get_new_node_and_connection();
+    // Note: node must be kept alive to prevent Docker container cleanup
+    let (_node, mut conn) = harness.get_new_node_and_connection();
 
     // randomly generated tablename
     let tablename = format!("test_table_{}", generate_random_string(8));
