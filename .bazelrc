@@ -1,0 +1,57 @@
+# Squeal Bazel configuration
+
+# Enable Bzlmod for dependency management
+common --enable_bzlmod
+
+# Use local disk cache for faster rebuilds
+common --disk_cache=/tmp/bazel-cache
+
+# Reasonable parallelism for local builds
+common --jobs=8
+
+# Download only top-level outputs (not intermediate artifacts)
+common --remote_download_outputs=toplevel
+
+###############################################################################
+# Build configurations
+###############################################################################
+
+# Enable clippy by default on all builds
+build --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build --output_groups=+clippy_checks
+
+# Clippy configuration - treat warnings as errors
+build --@rules_rust//:clippy_flags=-Dwarnings
+
+###############################################################################
+# Release build configuration
+###############################################################################
+build:release --compilation_mode=opt
+build:release --@rules_rust//:extra_rustc_flags=-Ccodegen-units=1,-Copt-level=3,-Cstrip=symbols
+
+###############################################################################
+# Development configurations
+###############################################################################
+
+# Disable clippy for rust-analyzer compatibility
+build:noclippy --aspects=
+build:noclippy --output_groups=
+
+# Fast compilation for development
+build:dev --compilation_mode=fastbuild
+build:dev --@rules_rust//:extra_rustc_flags=-Copt-level=0
+
+###############################################################################
+# Test configurations
+###############################################################################
+test --test_output=errors
+test --test_env=RUST_BACKTRACE=1
+
+# Docker-based PostgreSQL integration tests
+test:postgres --test_tag_filters=postgres-docker
+test:postgres --test_env=TESTCONTAINERS_RYUK_DISABLED=false
+
+###############################################################################
+# User-specific configurations
+###############################################################################
+try-import %workspace%/.bazelrc.user

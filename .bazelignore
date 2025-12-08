@@ -1,0 +1,8 @@
+# Ignore Cargo build artifacts
+target
+
+# Ignore git directory
+.git
+
+# Ignore node_modules if any
+node_modules
