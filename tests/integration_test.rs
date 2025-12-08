@@ -41,7 +41,10 @@ fn test_complicated_query_builder() {
         for_update: true,
     }
     .sql();
-    assert_eq!(result, "SELECT a, b FROM table WHERE a <> b GROUP BY a, b HAVING a <> b ORDER BY a ASC, b DESC LIMIT 19 OFFSET 10 FOR UPDATE");
+    assert_eq!(
+        result,
+        "SELECT a, b FROM table WHERE a <> b GROUP BY a, b HAVING a <> b ORDER BY a ASC, b DESC LIMIT 19 OFFSET 10 FOR UPDATE"
+    );
 }
 
 #[test]
@@ -67,7 +70,10 @@ fn test_fluent_query() {
         .offset(10);
 
     let r = result.build();
-    assert_eq!(r.sql(), "SELECT a, sum(b) FROM the_table WHERE a <> b GROUP BY a HAVING a <> b ORDER BY a ASC LIMIT 19 OFFSET 10");
+    assert_eq!(
+        r.sql(),
+        "SELECT a, sum(b) FROM the_table WHERE a <> b GROUP BY a HAVING a <> b ORDER BY a ASC LIMIT 19 OFFSET 10"
+    );
 }
 
 #[test]
@@ -495,7 +501,10 @@ fn test_full_query_with_select_subquery() {
         .from("users")
         .build()
         .sql();
-    assert_eq!(result, "SELECT id, name, (SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count FROM users");
+    assert_eq!(
+        result,
+        "SELECT id, name, (SELECT COUNT(*) FROM orders WHERE orders.user_id = users.id) AS order_count FROM users"
+    );
 }
 
 #[test]
@@ -535,7 +544,10 @@ fn test_complex_nested_query() {
         .where_(exists(exists_subquery))
         .build()
         .sql();
-    assert_eq!(result, "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u WHERE EXISTS (SELECT 1 FROM orders WHERE orders.user_id = u.id)");
+    assert_eq!(
+        result,
+        "SELECT * FROM (SELECT * FROM users WHERE active = true) AS u WHERE EXISTS (SELECT 1 FROM orders WHERE orders.user_id = u.id)"
+    );
 }
 
 #[test]
@@ -569,7 +581,10 @@ fn test_nested_subquery_in_where() {
     };
 
     let result = in_subquery("id", outer_subquery).sql();
-    assert_eq!(result, "id IN (SELECT product_id FROM products WHERE category_id IN (SELECT category_id FROM popular_categories))");
+    assert_eq!(
+        result,
+        "id IN (SELECT product_id FROM products WHERE category_id IN (SELECT category_id FROM popular_categories))"
+    );
 }
 
 #[test]
@@ -1068,7 +1083,10 @@ fn test_insert_select_direct() {
         on_conflict: None,
         returning: None,
     };
-    assert_eq!(insert.sql(), "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users WHERE status = 'active'");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO archived_users (name, email) SELECT name, email FROM active_users WHERE status = 'active'"
+    );
 }
 
 #[test]
@@ -1118,7 +1136,10 @@ fn test_insert_select_with_returning() {
         .select(select_query)
         .returning(Columns::Selected(vec!["id", "user_id"]))
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO completed_transactions (user_id, amount) SELECT user_id, amount FROM pending_transactions RETURNING id, user_id");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO completed_transactions (user_id, amount) SELECT user_id, amount FROM pending_transactions RETURNING id, user_id"
+    );
 }
 
 // Tests for CreateTable and DropTable
@@ -1415,7 +1436,10 @@ fn test_create_table_builder_multiple_columns() {
         .column("name", "text", vec!["NOT NULL"])
         .column("price", "numeric", vec!["DEFAULT", "0"])
         .build_create_table();
-    assert_eq!(create.sql(), "CREATE TABLE products (id serial PRIMARY KEY, name text NOT NULL, price numeric DEFAULT 0)");
+    assert_eq!(
+        create.sql(),
+        "CREATE TABLE products (id serial PRIMARY KEY, name text NOT NULL, price numeric DEFAULT 0)"
+    );
 }
 
 #[test]
@@ -1463,7 +1487,10 @@ fn test_insert_multiple_rows_builder() {
             vec!["'Doohickey'", "14.99"],
         ])
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO products (name, price) VALUES ('Widget', 9.99), ('Gadget', 19.99), ('Doohickey', 14.99)");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO products (name, price) VALUES ('Widget', 9.99), ('Gadget', 19.99), ('Doohickey', 14.99)"
+    );
 }
 
 #[test]
@@ -1814,7 +1841,10 @@ fn test_multiple_joins() {
         .inner_join("orders", eq("users.id", "orders.user_id"))
         .left_join("products", eq("orders.product_id", "products.id"))
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, orders.total, products.name FROM users INNER JOIN orders ON users.id = orders.user_id LEFT JOIN products ON orders.product_id = products.id");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, orders.total, products.name FROM users INNER JOIN orders ON users.id = orders.user_id LEFT JOIN products ON orders.product_id = products.id"
+    );
 }
 
 #[test]
@@ -1826,7 +1856,10 @@ fn test_join_with_where_clause() {
         .inner_join("orders", eq("users.id", "orders.user_id"))
         .where_(gt("orders.total", "100"))
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id WHERE orders.total > 100");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id WHERE orders.total > 100"
+    );
 }
 
 #[test]
@@ -1843,7 +1876,10 @@ fn test_join_with_complex_on_condition() {
             ),
         )
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id AND orders.status = 'active'");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, orders.total FROM users INNER JOIN orders ON users.id = orders.user_id AND orders.status = 'active'"
+    );
 }
 
 #[test]
@@ -1856,7 +1892,10 @@ fn test_join_with_order_by_and_limit() {
         .order_by(vec![OrderedColumn::Desc("orders.total")])
         .limit(10)
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, orders.total FROM users LEFT JOIN orders ON users.id = orders.user_id ORDER BY orders.total DESC LIMIT 10");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, orders.total FROM users LEFT JOIN orders ON users.id = orders.user_id ORDER BY orders.total DESC LIMIT 10"
+    );
 }
 
 #[test]
@@ -1912,7 +1951,10 @@ fn test_join_subquery() {
         .from("users")
         .join_subquery(JoinType::Left, subquery, "oc", eq("users.id", "oc.user_id"))
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, oc.order_count FROM users LEFT JOIN (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) AS oc ON users.id = oc.user_id");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, oc.order_count FROM users LEFT JOIN (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) AS oc ON users.id = oc.user_id"
+    );
 }
 
 #[test]
@@ -1925,7 +1967,10 @@ fn test_join_with_group_by_and_having() {
         .group_by(vec!["users.name"])
         .having(gt("COUNT(orders.id)", "5"))
         .build();
-    assert_eq!(query.sql(), "SELECT users.name, COUNT(orders.id) as order_count FROM users LEFT JOIN orders ON users.id = orders.user_id GROUP BY users.name HAVING COUNT(orders.id) > 5");
+    assert_eq!(
+        query.sql(),
+        "SELECT users.name, COUNT(orders.id) as order_count FROM users LEFT JOIN orders ON users.id = orders.user_id GROUP BY users.name HAVING COUNT(orders.id) > 5"
+    );
 }
 
 #[test]
@@ -1978,7 +2023,10 @@ fn test_simple_cte() {
         .select(vec!["*"])
         .from("active_users")
         .build();
-    assert_eq!(query.sql(), "WITH active_users AS (SELECT id, name FROM users WHERE active = true) SELECT * FROM active_users");
+    assert_eq!(
+        query.sql(),
+        "WITH active_users AS (SELECT id, name FROM users WHERE active = true) SELECT * FROM active_users"
+    );
 }
 
 #[test]
@@ -2020,7 +2068,10 @@ fn test_multiple_ctes() {
         .from("active_users au")
         .inner_join("user_orders uo", eq("au.id", "uo.user_id"))
         .build();
-    assert_eq!(query.sql(), "WITH active_users AS (SELECT id, name FROM users WHERE active = true), user_orders AS (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) SELECT au.name, uo.order_count FROM active_users au INNER JOIN user_orders uo ON au.id = uo.user_id");
+    assert_eq!(
+        query.sql(),
+        "WITH active_users AS (SELECT id, name FROM users WHERE active = true), user_orders AS (SELECT user_id, COUNT(*) as order_count FROM orders GROUP BY user_id) SELECT au.name, uo.order_count FROM active_users au INNER JOIN user_orders uo ON au.id = uo.user_id"
+    );
 }
 
 #[test]
@@ -2045,7 +2096,10 @@ fn test_cte_with_join() {
         .from("recent_users ru")
         .left_join("orders", eq("ru.id", "orders.user_id"))
         .build();
-    assert_eq!(query.sql(), "WITH recent_users AS (SELECT id, name FROM users WHERE created_at > '2023-01-01') SELECT ru.name, orders.total FROM recent_users ru LEFT JOIN orders ON ru.id = orders.user_id");
+    assert_eq!(
+        query.sql(),
+        "WITH recent_users AS (SELECT id, name FROM users WHERE created_at > '2023-01-01') SELECT ru.name, orders.total FROM recent_users ru LEFT JOIN orders ON ru.id = orders.user_id"
+    );
 }
 
 #[test]
@@ -2073,7 +2127,10 @@ fn test_cte_with_where_clause() {
         .from("category_totals")
         .where_(gt("total", "1000"))
         .build();
-    assert_eq!(query.sql(), "WITH category_totals AS (SELECT category, SUM(amount) as total FROM transactions GROUP BY category) SELECT * FROM category_totals WHERE total > 1000");
+    assert_eq!(
+        query.sql(),
+        "WITH category_totals AS (SELECT category, SUM(amount) as total FROM transactions GROUP BY category) SELECT * FROM category_totals WHERE total > 1000"
+    );
 }
 
 #[test]
@@ -2121,7 +2178,10 @@ fn test_cte_with_order_and_limit() {
         .select(vec!["name", "email"])
         .from("top_users")
         .build();
-    assert_eq!(query.sql(), "WITH top_users AS (SELECT * FROM users ORDER BY created_at DESC LIMIT 10) SELECT name, email FROM top_users");
+    assert_eq!(
+        query.sql(),
+        "WITH top_users AS (SELECT * FROM users ORDER BY created_at DESC LIMIT 10) SELECT name, email FROM top_users"
+    );
 }
 
 #[test]
@@ -2169,7 +2229,10 @@ fn test_on_conflict_do_nothing() {
         .values(vec!["'alice@example.com'", "'Alice'"])
         .on_conflict_do_nothing(vec!["email"])
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO NOTHING");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO NOTHING"
+    );
 }
 
 #[test]
@@ -2180,7 +2243,10 @@ fn test_on_conflict_do_update() {
         .values(vec!["'alice@example.com'", "'Alice'"])
         .on_conflict_do_update(vec!["email"], vec![("name", "'Alice Updated'")])
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO UPDATE SET name = 'Alice Updated'");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice') ON CONFLICT (email) DO UPDATE SET name = 'Alice Updated'"
+    );
 }
 
 #[test]
@@ -2191,7 +2257,10 @@ fn test_on_conflict_multiple_columns() {
         .values(vec!["'ABC123'", "'Widget'", "19.99"])
         .on_conflict_do_nothing(vec!["sku", "name"])
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku, name) DO NOTHING");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku, name) DO NOTHING"
+    );
 }
 
 #[test]
@@ -2205,7 +2274,10 @@ fn test_on_conflict_do_update_multiple_columns() {
             vec![("name", "'Widget Updated'"), ("price", "24.99")],
         )
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku) DO UPDATE SET name = 'Widget Updated', price = 24.99");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO products (sku, name, price) VALUES ('ABC123', 'Widget', 19.99) ON CONFLICT (sku) DO UPDATE SET name = 'Widget Updated', price = 24.99"
+    );
 }
 
 #[test]
@@ -2217,7 +2289,10 @@ fn test_on_conflict_with_returning() {
         .on_conflict_do_update(vec!["email"], vec![("name", "'Bob Updated'")])
         .returning(Columns::Star)
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('bob@example.com', 'Bob') ON CONFLICT (email) DO UPDATE SET name = 'Bob Updated' RETURNING *");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('bob@example.com', 'Bob') ON CONFLICT (email) DO UPDATE SET name = 'Bob Updated' RETURNING *"
+    );
 }
 
 #[test]
@@ -2247,7 +2322,10 @@ fn test_direct_on_conflict_construction() {
         on_conflict: Some(OnConflict::DoNothing(vec!["email"])),
         returning: None,
     };
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING"
+    );
 }
 
 #[test]
@@ -2261,7 +2339,10 @@ fn test_on_conflict_with_multiple_rows() {
         ])
         .on_conflict_do_nothing(vec!["email"])
         .build();
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice'), ('bob@example.com', 'Bob') ON CONFLICT (email) DO NOTHING");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('alice@example.com', 'Alice'), ('bob@example.com', 'Bob') ON CONFLICT (email) DO NOTHING"
+    );
 }
 
 #[test]
@@ -2357,7 +2438,10 @@ fn test_query_with_cte_and_joins() {
         ])
         .limit(10)
         .build();
-    assert_eq!(query.sql(), "WITH user_totals AS (SELECT user_id, total FROM orders GROUP BY user_id) SELECT u.name, ut.total FROM users u INNER JOIN user_totals ut ON u.id = ut.user_id WHERE ut.total > 100 ORDER BY ut.total DESC, u.name ASC LIMIT 10");
+    assert_eq!(
+        query.sql(),
+        "WITH user_totals AS (SELECT user_id, total FROM orders GROUP BY user_id) SELECT u.name, ut.total FROM users u INNER JOIN user_totals ut ON u.id = ut.user_id WHERE ut.total > 100 ORDER BY ut.total DESC, u.name ASC LIMIT 10"
+    );
 }
 
 #[test]
@@ -2576,7 +2660,10 @@ fn test_insert_on_conflict_do_nothing_method() {
         .on_conflict_do_nothing(vec!["email"])
         .build();
 
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO NOTHING"
+    );
 }
 
 // Test INSERT on_conflict_do_update - covers line 312
@@ -2589,7 +2676,10 @@ fn test_insert_on_conflict_do_update_method() {
         .on_conflict_do_update(vec!["email"], vec![("name", "EXCLUDED.name")])
         .build();
 
-    assert_eq!(insert.sql(), "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name");
+    assert_eq!(
+        insert.sql(),
+        "INSERT INTO users (email, name) VALUES ('test@example.com', 'Test') ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name"
+    );
 }
 
 // Test UPDATE columns/values separately - covers lines 117, 132

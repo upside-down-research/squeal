@@ -207,12 +207,12 @@
 
 pub mod queries;
 
-pub use queries::create_table::{CreateTable, TableBuilder, T};
-pub use queries::delete::{Delete, DeleteBuilder, D};
+pub use queries::create_table::{CreateTable, T, TableBuilder};
+pub use queries::delete::{D, Delete, DeleteBuilder};
 pub use queries::drop_table::DropTable;
-pub use queries::insert::{Insert, InsertBuilder, InsertSource, OnConflict, I};
+pub use queries::insert::{I, Insert, InsertBuilder, InsertSource, OnConflict};
 pub use queries::select::{Columns, Select, SelectExpression};
-pub use queries::update::{Update, UpdateBuilder, U};
+pub use queries::update::{U, Update, UpdateBuilder};
 
 /// The Sql trait is implemented by all objects that can be used in a query.
 /// It provides a single method, sql(), that returns a String.
