@@ -40,7 +40,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-squeal = "0.1.0"
+squeal = "0.1.1"
 ```
 
 **MSRV**: Rust 1.90.0
@@ -342,7 +342,7 @@ cargo clippy --fix --lib -p squeal
 
 ## Project Status
 
-**Version**: 0.1.0 (pre-release)
+**Pre-release**
 
 This library is in active development. The API is stabilizing but may
 still change. It is suitable for experimentation and early adoption,
