@@ -1,16 +1,17 @@
 [package]
 name = "squeal"
 # Squeal is pre-release
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A SQL query builder library for Rust"
 license = "LGPL-3.0-or-later"
 readme = "README.md"
-repository = "https://gitlab.com/upside-down-research/oss/squeal"
+repository = "https://github.com/upside-down-research/squeal"
 documentation = "https://docs.rs/squeal"
 authors= ["Upside Down Research"]
 rust-version = "1.90"
 categories = ["database"]
+
 [features]
 postgres-docker = []
 
