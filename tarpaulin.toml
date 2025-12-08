@@ -1,0 +1,16 @@
+[coverage]
+# Exclude patterns that tarpaulin can't properly instrument
+exclude-files = []
+
+# Run with all features
+all-features = true
+
+# Workspace mode
+workspace = true
+
+# Timeout for tests
+timeout = "120s"
+
+# Ignore lines that are trait/impl declarations or builder returns
+# These are known limitations of tarpaulin's instrumentation
+ignore-panics = true
