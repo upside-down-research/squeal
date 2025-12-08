@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 //! # squeal - Type-Safe SQL Query Builder for PostgreSQL
 //!
 //! **squeal** is a lightweight, type-safe SQL query builder for Rust that targets PostgreSQL.

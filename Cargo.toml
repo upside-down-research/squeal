@@ -1,8 +1,8 @@
 [package]
 name = "squeal"
 # Squeal is pre-release
-version = "0.0.6"
-edition = "2021"
+version = "0.1.0"
+edition = "2024"
 description = "A SQL query builder library for Rust"
 license = "LGPL-3.0-or-later"
 readme = "README.md"
