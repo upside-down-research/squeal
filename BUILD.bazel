@@ -1,0 +1,130 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test", "rust_clippy")
+load("@crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+###############################################################################
+# Library
+###############################################################################
+
+rust_library(
+    name = "squeal",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    rustc_flags = select({
+        ":release": [
+            "-Ccodegen-units=1",
+            "-Copt-level=3",
+            "-Cstrip=symbols",
+        ],
+        "//conditions:default": [
+            "-Copt-level=0",
+        ],
+    }),
+    deps = all_crate_deps(normal = True),
+)
+
+###############################################################################
+# Unit Tests (embedded in lib.rs)
+###############################################################################
+
+rust_test(
+    name = "unit_tests",
+    crate = ":squeal",
+    edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+###############################################################################
+# Integration Tests
+###############################################################################
+
+rust_test(
+    name = "integration_tests",
+    srcs = ["tests/integration_test.rs"],
+    edition = "2024",
+    deps = [
+        ":squeal",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+# Integration tests that require Docker PostgreSQL
+rust_test(
+    name = "integration_tests_postgres",
+    srcs = ["tests/integration_test.rs"],
+    edition = "2024",
+    rustc_flags = ["--cfg=feature=\"postgres-docker\""],
+    tags = ["postgres-docker", "manual"],
+    deps = [
+        ":squeal",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+###############################################################################
+# Benchmarks
+###############################################################################
+
+rust_test(
+    name = "benchmarks",
+    srcs = ["benches/benchmark.rs"],
+    edition = "2024",
+    crate_root = "benches/benchmark.rs",
+    tags = ["benchmark", "manual"],
+    deps = [
+        ":squeal",
+    ] + all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ),
+)
+
+###############################################################################
+# Linting
+###############################################################################
+
+rust_clippy(
+    name = "clippy",
+    deps = [":squeal"],
+)
+
+###############################################################################
+# Configuration
+###############################################################################
+
+config_setting(
+    name = "release",
+    values = {"compilation_mode": "opt"},
+)
+
+###############################################################################
+# Convenience targets
+###############################################################################
+
+# Run all tests (except Docker-based ones)
+alias(
+    name = "test",
+    actual = ":unit_tests",
+)
+
+# Run all checks (tests + clippy)
+filegroup(
+    name = "check",
+    testonly = True,
+    srcs = [
+        ":clippy",
+        ":unit_tests",
+        ":integration_tests",
+    ],
+)

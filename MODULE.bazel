@@ -1,0 +1,30 @@
+"""Squeal - SQL query builder library for Rust"""
+
+module(
+    name = "squeal",
+    version = "0.1.1",
+)
+
+# Core Bazel utilities
+bazel_dep(name = "bazel_skylib", version = "1.8.1")
+
+# Rust rules
+bazel_dep(name = "rules_rust", version = "0.63.0")
+
+# Configure Rust toolchain
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = "2024",
+    versions = ["1.90.0"],
+)
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+# Configure crate dependencies from Cargo.toml
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+crate.from_cargo(
+    name = "crates",
+    cargo_lockfile = "//:Cargo.lock",
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates")
