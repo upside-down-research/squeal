@@ -330,6 +330,10 @@ cargo bench
 cargo doc --open
 ```
 
+####
+
+Bazel is being introduced as the builder
+
 ### Code Quality
 
 ```bash
