@@ -94,9 +94,25 @@ rust_test(
 # Linting
 ###############################################################################
 
+# Clippy linting for the library
 rust_clippy(
     name = "clippy",
+    testonly = True,
     deps = [":squeal"],
+)
+
+# Clippy linting for unit tests
+rust_clippy(
+    name = "clippy_tests",
+    testonly = True,
+    deps = [":unit_tests"],
+)
+
+# Clippy linting for integration tests
+rust_clippy(
+    name = "clippy_integration",
+    testonly = True,
+    deps = [":integration_tests"],
 )
 
 ###############################################################################
@@ -119,11 +135,13 @@ alias(
 )
 
 # Run all checks (tests + clippy)
-filegroup(
+# Note: Use 'bazel test :all' to run all tests including clippy checks
+test_suite(
     name = "check",
-    testonly = True,
-    srcs = [
+    tests = [
         ":clippy",
+        ":clippy_tests",
+        ":clippy_integration",
         ":unit_tests",
         ":integration_tests",
     ],
