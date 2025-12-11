@@ -6,3 +6,5 @@ target
 
 # Ignore node_modules if any
 node_modules
+
+vendor/

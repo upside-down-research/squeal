@@ -28,3 +28,14 @@ crate.from_cargo(
     manifests = ["//:Cargo.toml"],
 )
 use_repo(crate, "crates")
+
+
+bazel_dep(name = "toolchains_buildbuddy")
+git_override(
+    module_name = "toolchains_buildbuddy",
+    commit = "0c575cc56a0c5ed69a6dfb544a3f794b9d1b474d",
+    remote = "https://github.com/buildbuddy-io/buildbuddy-toolchain",
+)
+buildbuddy = use_extension("@toolchains_buildbuddy//:extensions.bzl", "buildbuddy", dev_dependency = True)
+
+buildbuddy.platform(buildbuddy_container_image = "UBUNTU20_04_IMAGE")
