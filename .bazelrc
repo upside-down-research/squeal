@@ -51,6 +51,102 @@ test --test_env=RUST_BACKTRACE=1
 test:postgres --test_tag_filters=postgres-docker
 test:postgres --test_env=TESTCONTAINERS_RYUK_DISABLED=false
 
+
+query:remote --disk_cache=
+query:remote --bes_results_url=https://upside-down-research.buildbuddy.io/invocation/
+query:remote --bes_backend=grpcs://upside-down-research.buildbuddy.io
+query:remote --remote_cache=grpcs://upside-down-research.buildbuddy.io
+query:remote --remote_timeout=3600
+query:remote --remote_executor=grpcs://upside-down-research.buildbuddy.io
+
+
+# use the org
+build:remote --disk_cache=
+build:remote --bes_results_url=https://upside-down-research.buildbuddy.io/invocation/
+build:remote --bes_backend=grpcs://upside-down-research.buildbuddy.io
+build:remote --remote_cache=grpcs://upside-down-research.buildbuddy.io
+build:remote --remote_timeout=3600
+build:remote --remote_executor=grpcs://upside-down-research.buildbuddy.io
+
+# linking in the git metadata
+build:remote --build_metadata=REPO_URL=git@github.com:upside-down-research/squeal.git
+build:remote --workspace_status_command=$(pwd)/.buildbuddy/workplace-status.sh
+
+build:remote --jobs=50
+build:remote --noslim_profile
+build:remote --nolegacy_important_outputs
+
+build:remote --remote_cache_compression
+build:remote --experimental_remote_cache_compression_threshold=100
+build:remote --experimental_profile_include_target_label
+build:remote --experimental_profile_include_primary_output
+
+build:remote --host_platform=@toolchains_buildbuddy//platforms:linux_x86_64
+build:remote --platforms=@toolchains_buildbuddy//platforms:linux_x86_64
+build:remote --extra_execution_platforms=@toolchains_buildbuddy//platforms:linux_x86_64
+build:remote --crosstool_top=@toolchains_buildbuddy//toolchains/cc:ubuntu_gcc_x86_64
+build:remote --extra_toolchains=@toolchains_buildbuddy//toolchains/cc:ubuntu_gcc_x86_64
+
+
+test  --test_verbose_timeout_warnings --test_output=errors
+
+test:remote --disk_cache=
+test:remote --bes_results_url=https://upside-down-research.buildbuddy.io/invocation/
+test:remote --bes_backend=grpcs://upside-down-research.buildbuddy.io
+test:remote --remote_cache=grpcs://upside-down-research.buildbuddy.io
+test:remote --remote_timeout=3600
+test:remote --remote_executor=grpcs://upside-down-research.buildbuddy.io
+
+# linking in the git metadata
+test:remote --build_metadata=REPO_URL=git@github.com:upside-down-research/squeal.git
+test:remote --workspace_status_command=$(pwd)/.buildbuddy/workplace-status.sh
+
+# Set the number of jobs Bazel will run in parallel
+test:remote --jobs=50
+
+# Enable experimental remote cache compression
+test:remote --remote_cache_compression
+test:remote --experimental_remote_cache_compression_threshold=100
+
+# Disable slim profile
+test:remote --noslim_profile
+
+# Include target label in the profile
+test:remote --experimental_profile_include_target_label
+
+# Include primary output in the profile
+test:remote --experimental_profile_include_primary_output
+
+# Disable legacy important outputs
+test:remote --nolegacy_important_outputs
+
+
+run:remote --disk_cache=
+run:remote --bes_results_url=https://upside-down-research.buildbuddy.io/invocation/
+run:remote --bes_backend=grpcs://upside-down-research.buildbuddy.io
+run:remote --remote_cache=grpcs://upside-down-research.buildbuddy.io
+run:remote --remote_timeout=3600
+run:remote --remote_executor=grpcs://upside-down-research.buildbuddy.io
+
+# linking in the git metadata
+run:remote --build_metadata=REPO_URL=git@github.com:upside-down-research/squeal.git
+run:remote --workspace_status_command=$(pwd)/.buildbuddy/workplace-status.sh
+
+run:remote --jobs=50
+run:remote --noslim_profile
+run:remote --nolegacy_important_outputs
+
+# run:remote --experimental_remote_cache_compression
+run:remote --experimental_profile_include_target_label
+run:remote --experimental_profile_include_primary_output
+
+run:remote --host_platform=@toolchains_buildbuddy//platforms:linux_x86_64
+run:remote --platforms=@toolchains_buildbuddy//platforms:linux_x86_64
+run:remote --extra_execution_platforms=@toolchains_buildbuddy//platforms:linux_x86_64
+run:remote --crosstool_top=@toolchains_buildbuddy//toolchains/cc:ubuntu_gcc_x86_64
+run:remote --extra_toolchains=@toolchains_buildbuddy//toolchains/cc:ubuntu_gcc_x86_64
+
+
 ###############################################################################
 # User-specific configurations
 ###############################################################################

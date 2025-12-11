@@ -1,0 +1,13 @@
+#!/bin/bash -eu
+
+set -o pipefail
+
+CMD=${1:-'build'}
+TARGET=${2:-'//...'}
+
+
+# Using --remote_instance_name= and setting it to a random string would give you a fresh cache namespace.
+
+
+TEST_TIMEOUT=15
+bazel "${CMD}" --config=remote --remote_header=x-buildbuddy-api-key=${BUILDBUDDY_API_KEY} --build_metadata=ROLE=$(whoami)  "${TARGET}"
