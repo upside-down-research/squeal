@@ -4,7 +4,7 @@
 
 **squeal** is a SQL query builder library for Rust targeting PostgreSQL. It provides a type-safe way to construct SQL queries using Rust structures, with both direct struct construction and fluent builder APIs.
 
-- **Version**: 0.0.6 (pre-release)
+- **Version**: 0.1.2 (pre-release)
 - **MSRV**: Rust 1.90
 - **License**: LGPL 3.0 or later
 - **Repository**: https://gitlab.com/upside-down-research/oss/squeal
@@ -14,12 +14,14 @@
 ```
 squeal/
 ├── src/
-│   └── lib.rs           # Core library (all types, traits, and builders)
+│   ├── lib.rs           # Core traits, Op/Term, helpers, Query/QueryBuilder, inline unit tests
+│   └── queries/         # Insert, Update, Delete, CreateTable, DropTable, Select types
 ├── tests/
 │   └── integration_test.rs  # Integration tests (includes Docker PostgreSQL tests)
 ├── benches/
 │   └── benchmark.rs     # Criterion benchmarks
 ├── Cargo.toml           # Project manifest
+├── BUILD.bazel          # Bazel build (also MODULE.bazel, .bazelrc)
 ├── README.md            # Project readme
 ├── CHANGELOG.md         # Version history
 └── LICENSE.md           # LGPL 3.0 license
@@ -102,7 +104,7 @@ cargo doc --open
 
 - **`Columns`** - `Star` for `*`, `Selected(Vec<&str>)` for specific columns
 - **`Op`** - Operators: `And`, `Or`, `Equals`, `O(&str)` for custom operators
-- **`Term`** - WHERE clause terms: `Atom`, `Condition`, `Parens`, `Null`
+- **`Term`** - Expression terms: `Atom`, `Condition`, `Parens`, `Not`, `Subquery`, `Cast`, `Case`, `Coalesce`, `Any`, `All`, `Null`, and more
 - **`OrderedColumn`** - `Asc(&str)` or `Desc(&str)` for ORDER BY
 
 ### Usage Examples
@@ -173,18 +175,19 @@ fn test_with_postgres() -> Result<(), String> {
 ## Dependencies
 
 ### Runtime
-- `postgres` (0.19.7) - PostgreSQL client library
+- None. The library has no runtime dependencies.
 
 ### Dev/Test
-- `criterion` (0.4) - Benchmarking framework
+- `postgres` (0.19.14) - PostgreSQL client library, used by the integration tests
+- `criterion` (0.8) - Benchmarking framework
 - `testcontainers` (0.15) - Docker-based integration testing
 - `testcontainers-modules` (0.2.1) - PostgreSQL testcontainer module
 
 ## Known Issues / TODO
 
-1. The benchmark file (`benches/benchmark.rs`) uses outdated API (Query without Option wrappers, Q() with table argument) - needs updating
-2. Multiple clippy warnings about lifetime syntax inconsistencies need fixing
-3. The `Build` trait is defined but not consistently used across builders
+1. The `Build` trait is defined in `src/lib.rs` but has no implementors; the builders use inherent `build()` methods.
+
+Run `cargo clippy --all-targets` for the current lint state. It is expected to be clean.
 
 ## Design Philosophy
 
