@@ -132,11 +132,8 @@ impl<'a> Sql for Insert<'a> {
             result.push_str(&format!(" {}", on_conflict.sql()));
         }
 
-        if self.returning.is_some() {
-            result.push_str(&format!(
-                " RETURNING {}",
-                self.returning.as_ref().unwrap().sql()
-            ));
+        if let Some(returning) = &self.returning {
+            result.push_str(&format!(" RETURNING {}", returning.sql()));
         }
 
         result
