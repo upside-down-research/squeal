@@ -1,4 +1,4 @@
-use crate::{Columns, Parameterized, PgParams, Sql, Term};
+use crate::{BuildError, Columns, Parameterized, PgParams, Sql, Term};
 
 /// The Update struct is used to specify an update query.
 /// The user is expect to construct the Update object and then call the sql() method to
@@ -21,8 +21,32 @@ pub struct Update<'a> {
     pub returning: Option<Columns<'a>>,
 }
 
+impl<'a> Update<'a> {
+    /// Checks that the update can produce valid SQL.
+    ///
+    /// Returns `BuildError::NoColumns` if `columns` is empty, and
+    /// `BuildError::ColumnValueMismatch` if `columns` and `values` differ in length.
+    pub fn validate(&self) -> Result<(), BuildError> {
+        if self.columns.is_empty() && self.values.is_empty() {
+            return Err(BuildError::NoColumns);
+        }
+        if self.columns.len() != self.values.len() {
+            return Err(BuildError::ColumnValueMismatch {
+                columns: self.columns.len(),
+                values: self.values.len(),
+            });
+        }
+        Ok(())
+    }
+}
+
 impl<'a> Sql for Update<'a> {
+    /// # Panics
+    /// Panics if `validate()` fails, e.g. when `columns` is empty or differs in length from `values`.
     fn sql(&self) -> String {
+        if let Err(e) = self.validate() {
+            panic!("{}", e);
+        }
         let mut result = format!("UPDATE {} SET ", self.table);
         let mut first = true;
         for (c, v) in self.columns.iter().zip(self.values.iter()) {
@@ -172,6 +196,10 @@ impl<'a> UpdateBuilder<'a> {
     }
     /// Builds the final Update statement
     ///
+    /// # Panics
+    /// Panics if no columns are set, or if the columns and values differ in length. Use `build_checked()` to get a
+    /// `Result` instead.
+    ///
     /// # Example
     /// ```
     /// use squeal::*;
@@ -180,14 +208,32 @@ impl<'a> UpdateBuilder<'a> {
     /// assert_eq!(update.sql(), "UPDATE users SET name = 'Eve'");
     /// ```
     pub fn build(&self) -> Update<'a> {
-        Update {
+        self.build_checked().unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Builds the final Update statement, returning an error if it is invalid.
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ub = U("users");
+    /// let result = ub.columns(vec!["a", "b"]).values(vec!["1"]).build_checked();
+    /// assert_eq!(
+    ///     result.err(),
+    ///     Some(BuildError::ColumnValueMismatch { columns: 2, values: 1 })
+    /// );
+    /// ```
+    pub fn build_checked(&self) -> Result<Update<'a>, BuildError> {
+        let update = Update {
             table: self.table,
             columns: self.columns.clone(),
             values: self.values.clone(),
             from: self.from,
             where_clause: self.where_clause.clone(),
             returning: self.returning.clone(),
-        }
+        };
+        update.validate()?;
+        Ok(update)
     }
 }
 

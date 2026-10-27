@@ -2946,3 +2946,260 @@ fn test_rendering_helpers_return_owned_terms() {
         assert!(matches!(t, Term::Owned(_)));
     }
 }
+
+// Tests for Update column/value length validation
+#[test]
+fn test_update_build_checked_ok() {
+    let mut ub = U("t");
+    let update = ub
+        .columns(vec!["a", "b"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .unwrap();
+    assert_eq!(update.sql(), "UPDATE t SET a = 1, b = 2");
+}
+
+#[test]
+fn test_update_build_checked_more_columns_than_values() {
+    let mut ub = U("t");
+    let err = ub
+        .columns(vec!["a", "b"])
+        .values(vec!["1"])
+        .build_checked()
+        .err()
+        .unwrap();
+    assert_eq!(
+        err,
+        BuildError::ColumnValueMismatch {
+            columns: 2,
+            values: 1
+        }
+    );
+}
+
+#[test]
+fn test_update_build_checked_more_values_than_columns() {
+    let mut ub = U("t");
+    let err = ub
+        .columns(vec!["a"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .err()
+        .unwrap();
+    assert_eq!(
+        err,
+        BuildError::ColumnValueMismatch {
+            columns: 1,
+            values: 2
+        }
+    );
+}
+
+#[test]
+#[should_panic(expected = "2 columns but 1 values")]
+fn test_update_build_panics_on_mismatch() {
+    let mut ub = U("t");
+    ub.columns(vec!["a", "b"]).values(vec!["1"]).build();
+}
+
+#[test]
+#[should_panic(expected = "2 columns but 1 values")]
+fn test_update_sql_panics_on_direct_mismatch() {
+    let update = Update {
+        table: "t",
+        columns: vec!["a", "b"],
+        values: vec!["1"],
+        from: None,
+        where_clause: None,
+        returning: None,
+    };
+    update.sql();
+}
+
+#[test]
+fn test_update_validate_direct() {
+    let update = Update {
+        table: "t",
+        columns: vec!["a"],
+        values: vec![],
+        from: None,
+        where_clause: None,
+        returning: None,
+    };
+    assert_eq!(
+        update.validate(),
+        Err(BuildError::ColumnValueMismatch {
+            columns: 1,
+            values: 0
+        })
+    );
+}
+
+#[test]
+fn test_build_error_display() {
+    let err = BuildError::ColumnValueMismatch {
+        columns: 2,
+        values: 1,
+    };
+    assert_eq!(
+        err.to_string(),
+        "column/value count mismatch: 2 columns but 1 values"
+    );
+    let _: &dyn std::error::Error = &err;
+}
+
+#[test]
+fn test_update_set_path_matches() {
+    let mut ub = U("t");
+    let update = ub
+        .set(vec![("a", "1"), ("b", "2")])
+        .build_checked()
+        .unwrap();
+    assert_eq!(update.sql(), "UPDATE t SET a = 1, b = 2");
+}
+
+// Tests for Update with no columns
+#[test]
+fn test_update_build_checked_no_columns() {
+    let ub = U("t");
+    assert_eq!(ub.build_checked().err(), Some(BuildError::NoColumns));
+}
+
+#[test]
+#[should_panic(expected = "no columns supplied")]
+fn test_update_build_panics_on_no_columns() {
+    U("t").build();
+}
+
+// Tests for Insert validation
+#[test]
+fn test_insert_build_checked_ok() {
+    let mut ib = I("t");
+    let insert = ib
+        .columns(vec!["a", "b"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .unwrap();
+    assert_eq!(insert.sql(), "INSERT INTO t (a, b) VALUES (1, 2)");
+}
+
+#[test]
+fn test_insert_build_checked_short_row() {
+    let mut ib = I("t");
+    let err = ib
+        .columns(vec!["a", "b"])
+        .values(vec!["1"])
+        .build_checked()
+        .err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 0,
+            columns: 2,
+            values: 1
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_long_row_in_later_row() {
+    let mut ib = I("t");
+    let err = ib
+        .columns(vec!["a"])
+        .rows(vec![vec!["1"], vec!["2", "3"]])
+        .build_checked()
+        .err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 1,
+            columns: 1,
+            values: 2
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_no_values() {
+    let mut ib = I("t");
+    let err = ib.columns(vec!["a"]).build_checked().err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 0,
+            columns: 1,
+            values: 0
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_no_rows() {
+    let mut ib = I("t");
+    let err = ib.columns(vec!["a"]).rows(vec![]).build_checked().err();
+    assert_eq!(err, Some(BuildError::NoRows));
+}
+
+#[test]
+fn test_insert_build_checked_no_columns() {
+    let ib = I("t");
+    assert_eq!(ib.build_checked().err(), Some(BuildError::NoColumns));
+}
+
+#[test]
+fn test_insert_select_source_skips_width_check() {
+    let sub = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Star, None)),
+        from: Some(FromSource::Table("s")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut ib = I("t");
+    let insert = ib
+        .columns(vec!["a", "b"])
+        .select(sub)
+        .build_checked()
+        .unwrap();
+    assert_eq!(insert.sql(), "INSERT INTO t (a, b) SELECT * FROM s");
+}
+
+#[test]
+#[should_panic(expected = "row 0 has 1 values but 2 columns")]
+fn test_insert_build_panics_on_short_row() {
+    I("t").columns(vec!["a", "b"]).values(vec!["1"]).build();
+}
+
+#[test]
+#[should_panic(expected = "no rows supplied")]
+fn test_insert_sql_panics_on_direct_no_rows() {
+    Insert {
+        table: "t",
+        columns: vec!["a"],
+        source: InsertSource::Values(vec![]),
+        on_conflict: None,
+        returning: None,
+    }
+    .sql();
+}
+
+#[test]
+fn test_build_error_display_variants() {
+    assert_eq!(BuildError::NoColumns.to_string(), "no columns supplied");
+    assert_eq!(BuildError::NoRows.to_string(), "no rows supplied");
+    assert_eq!(
+        BuildError::RowWidthMismatch {
+            row: 2,
+            columns: 3,
+            values: 1
+        }
+        .to_string(),
+        "row 2 has 1 values but 3 columns were supplied"
+    );
+}

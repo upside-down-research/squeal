@@ -1,4 +1,4 @@
-use crate::{Columns, Parameterized, PgParams, Query, Sql};
+use crate::{BuildError, Columns, Parameterized, PgParams, Query, Sql};
 
 /// Represents the source of data for an INSERT statement
 #[derive(Clone)]
@@ -88,8 +88,42 @@ pub struct Insert<'a> {
     pub returning: Option<Columns<'a>>,
 }
 
+impl<'a> Insert<'a> {
+    /// Checks that the insert can produce valid SQL.
+    ///
+    /// Returns `BuildError::NoColumns` if `columns` is empty. For `InsertSource::Values`,
+    /// returns `BuildError::NoRows` if there are no rows, and `BuildError::RowWidthMismatch`
+    /// if any row does not have one value per column. The width of an
+    /// `InsertSource::Select` is not checked.
+    pub fn validate(&self) -> Result<(), BuildError> {
+        if self.columns.is_empty() {
+            return Err(BuildError::NoColumns);
+        }
+        if let InsertSource::Values(rows) = &self.source {
+            if rows.is_empty() {
+                return Err(BuildError::NoRows);
+            }
+            for (i, row) in rows.iter().enumerate() {
+                if row.len() != self.columns.len() {
+                    return Err(BuildError::RowWidthMismatch {
+                        row: i,
+                        columns: self.columns.len(),
+                        values: row.len(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 impl<'a> Sql for Insert<'a> {
+    /// # Panics
+    /// Panics if `validate()` fails.
     fn sql(&self) -> String {
+        if let Err(e) = self.validate() {
+            panic!("{}", e);
+        }
         let mut result = format!("INSERT INTO {} (", self.table);
         let mut first = true;
         for c in &self.columns {
@@ -180,6 +214,10 @@ pub fn I<'a>(table: &'a str) -> InsertBuilder<'a> {
 impl<'a> InsertBuilder<'a> {
     /// Builds the final Insert statement
     ///
+    /// # Panics
+    /// Panics if `Insert::validate()` fails: no columns, no values, or a row whose width
+    /// differs from the column count. Use `build_checked()` to get a `Result` instead.
+    ///
     /// # Example
     /// ```
     /// use squeal::*;
@@ -188,7 +226,23 @@ impl<'a> InsertBuilder<'a> {
     /// assert_eq!(insert.sql(), "INSERT INTO users (name) VALUES ('Alice')");
     /// ```
     pub fn build(&self) -> Insert<'a> {
-        Insert {
+        self.build_checked().unwrap_or_else(|e| panic!("{}", e))
+    }
+
+    /// Builds the final Insert statement, returning an error if it is invalid.
+    ///
+    /// # Example
+    /// ```
+    /// use squeal::*;
+    /// let mut ib = I("t");
+    /// let result = ib.columns(vec!["a", "b"]).values(vec!["1"]).build_checked();
+    /// assert_eq!(
+    ///     result.err(),
+    ///     Some(BuildError::RowWidthMismatch { row: 0, columns: 2, values: 1 })
+    /// );
+    /// ```
+    pub fn build_checked(&self) -> Result<Insert<'a>, BuildError> {
+        let insert = Insert {
             table: self.table,
             columns: self.columns.clone(),
             source: self
@@ -197,7 +251,9 @@ impl<'a> InsertBuilder<'a> {
                 .unwrap_or(InsertSource::Values(vec![Vec::new()])),
             on_conflict: self.on_conflict.clone(),
             returning: self.returning.clone(),
-        }
+        };
+        insert.validate()?;
+        Ok(insert)
     }
     /// Sets the columns to insert into
     ///
