@@ -2835,3 +2835,114 @@ fn test_order_by_sql_direct() {
     let sql = order_by.sql();
     assert_eq!(sql, "ORDER BY name ASC, created_at DESC");
 }
+
+// Tests for Update column/value length validation
+#[test]
+fn test_update_build_checked_ok() {
+    let mut ub = U("t");
+    let update = ub
+        .columns(vec!["a", "b"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .unwrap();
+    assert_eq!(update.sql(), "UPDATE t SET a = 1, b = 2");
+}
+
+#[test]
+fn test_update_build_checked_more_columns_than_values() {
+    let mut ub = U("t");
+    let err = ub
+        .columns(vec!["a", "b"])
+        .values(vec!["1"])
+        .build_checked()
+        .err()
+        .unwrap();
+    assert_eq!(
+        err,
+        BuildError::ColumnValueMismatch {
+            columns: 2,
+            values: 1
+        }
+    );
+}
+
+#[test]
+fn test_update_build_checked_more_values_than_columns() {
+    let mut ub = U("t");
+    let err = ub
+        .columns(vec!["a"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .err()
+        .unwrap();
+    assert_eq!(
+        err,
+        BuildError::ColumnValueMismatch {
+            columns: 1,
+            values: 2
+        }
+    );
+}
+
+#[test]
+#[should_panic(expected = "2 columns but 1 values")]
+fn test_update_build_panics_on_mismatch() {
+    let mut ub = U("t");
+    ub.columns(vec!["a", "b"]).values(vec!["1"]).build();
+}
+
+#[test]
+#[should_panic(expected = "2 columns but 1 values")]
+fn test_update_sql_panics_on_direct_mismatch() {
+    let update = Update {
+        table: "t",
+        columns: vec!["a", "b"],
+        values: vec!["1"],
+        from: None,
+        where_clause: None,
+        returning: None,
+    };
+    update.sql();
+}
+
+#[test]
+fn test_update_validate_direct() {
+    let update = Update {
+        table: "t",
+        columns: vec!["a"],
+        values: vec![],
+        from: None,
+        where_clause: None,
+        returning: None,
+    };
+    assert_eq!(
+        update.validate(),
+        Err(BuildError::ColumnValueMismatch {
+            columns: 1,
+            values: 0
+        })
+    );
+}
+
+#[test]
+fn test_build_error_display() {
+    let err = BuildError::ColumnValueMismatch {
+        columns: 2,
+        values: 1,
+    };
+    assert_eq!(
+        err.to_string(),
+        "column/value count mismatch: 2 columns but 1 values"
+    );
+    let _: &dyn std::error::Error = &err;
+}
+
+#[test]
+fn test_update_set_path_matches() {
+    let mut ub = U("t");
+    let update = ub
+        .set(vec![("a", "1"), ("b", "2")])
+        .build_checked()
+        .unwrap();
+    assert_eq!(update.sql(), "UPDATE t SET a = 1, b = 2");
+}

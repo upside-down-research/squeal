@@ -214,6 +214,33 @@ pub use queries::insert::{I, Insert, InsertBuilder, InsertSource, OnConflict};
 pub use queries::select::{Columns, Select, SelectExpression};
 pub use queries::update::{U, Update, UpdateBuilder};
 
+/// Errors returned when a query is structurally invalid and cannot produce valid SQL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum BuildError {
+    /// The number of columns does not match the number of values.
+    ColumnValueMismatch {
+        /// The number of columns supplied.
+        columns: usize,
+        /// The number of values supplied.
+        values: usize,
+    },
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BuildError::ColumnValueMismatch { columns, values } => write!(
+                f,
+                "column/value count mismatch: {} columns but {} values",
+                columns, values
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BuildError {}
+
 /// The Sql trait is implemented by all objects that can be used in a query.
 /// It provides a single method, sql(), that returns a String.
 ///
