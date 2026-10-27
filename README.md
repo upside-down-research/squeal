@@ -309,6 +309,23 @@ let delete = D("sessions")
     .build();
 ```
 
+## Validation
+
+`Insert` and `Update` reject input that cannot produce valid SQL: no columns, no rows,
+or a value count that differs from the column count. `build()` and `sql()` panic on such
+input. `build_checked()` returns `Result<_, BuildError>` instead:
+
+```rust
+let mut ib = I("t");
+let result = ib.columns(vec!["a", "b"]).values(vec!["1"]).build_checked();
+assert_eq!(
+    result.err(),
+    Some(BuildError::RowWidthMismatch { row: 0, columns: 2, values: 1 })
+);
+```
+
+The width of an `INSERT ... SELECT` source is not checked.
+
 ## Development
 
 ### Build and Test

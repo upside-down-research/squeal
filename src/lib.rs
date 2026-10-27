@@ -183,6 +183,23 @@
 //! );
 //! ```
 //!
+//! ## Validation
+//!
+//! `Insert` and `Update` reject structurally invalid input: no columns, no rows, or a
+//! value count that differs from the column count. `build()` and `sql()` panic on such
+//! input; `build_checked()` returns a [`BuildError`] instead.
+//!
+//! ```
+//! use squeal::*;
+//!
+//! let mut ib = I("t");
+//! let result = ib.columns(vec!["a", "b"]).values(vec!["1"]).build_checked();
+//! assert_eq!(
+//!     result.err(),
+//!     Some(BuildError::RowWidthMismatch { row: 0, columns: 2, values: 1 })
+//! );
+//! ```
+//!
 //! ## Parameterized Queries
 //!
 //! Use the `Parameterized` trait for prepared statements:
@@ -218,6 +235,19 @@ pub use queries::update::{U, Update, UpdateBuilder};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BuildError {
+    /// No columns were supplied.
+    NoColumns,
+    /// An INSERT with literal values has no rows.
+    NoRows,
+    /// A row of an INSERT does not have one value per column.
+    RowWidthMismatch {
+        /// Zero-based index of the offending row.
+        row: usize,
+        /// The number of columns supplied.
+        columns: usize,
+        /// The number of values in the row.
+        values: usize,
+    },
     /// The number of columns does not match the number of values.
     ColumnValueMismatch {
         /// The number of columns supplied.
@@ -230,6 +260,17 @@ pub enum BuildError {
 impl std::fmt::Display for BuildError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            BuildError::NoColumns => write!(f, "no columns supplied"),
+            BuildError::NoRows => write!(f, "no rows supplied"),
+            BuildError::RowWidthMismatch {
+                row,
+                columns,
+                values,
+            } => write!(
+                f,
+                "row {} has {} values but {} columns were supplied",
+                row, values, columns
+            ),
             BuildError::ColumnValueMismatch { columns, values } => write!(
                 f,
                 "column/value count mismatch: {} columns but {} values",

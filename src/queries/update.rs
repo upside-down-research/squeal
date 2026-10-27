@@ -24,8 +24,12 @@ pub struct Update<'a> {
 impl<'a> Update<'a> {
     /// Checks that the update can produce valid SQL.
     ///
-    /// Returns `BuildError::ColumnValueMismatch` if `columns` and `values` differ in length.
+    /// Returns `BuildError::NoColumns` if `columns` is empty, and
+    /// `BuildError::ColumnValueMismatch` if `columns` and `values` differ in length.
     pub fn validate(&self) -> Result<(), BuildError> {
+        if self.columns.is_empty() && self.values.is_empty() {
+            return Err(BuildError::NoColumns);
+        }
         if self.columns.len() != self.values.len() {
             return Err(BuildError::ColumnValueMismatch {
                 columns: self.columns.len(),
@@ -38,7 +42,7 @@ impl<'a> Update<'a> {
 
 impl<'a> Sql for Update<'a> {
     /// # Panics
-    /// Panics if `validate()` fails, e.g. when `columns` and `values` differ in length.
+    /// Panics if `validate()` fails, e.g. when `columns` is empty or differs in length from `values`.
     fn sql(&self) -> String {
         if let Err(e) = self.validate() {
             panic!("{}", e);
@@ -193,7 +197,7 @@ impl<'a> UpdateBuilder<'a> {
     /// Builds the final Update statement
     ///
     /// # Panics
-    /// Panics if the columns and values differ in length. Use `build_checked()` to get a
+    /// Panics if no columns are set, or if the columns and values differ in length. Use `build_checked()` to get a
     /// `Result` instead.
     ///
     /// # Example

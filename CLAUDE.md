@@ -102,6 +102,7 @@ cargo doc --open
 
 ### Key Enums
 
+- **`BuildError`** - Returned by `build_checked()` on `Insert`/`Update`: `NoColumns`, `NoRows`, `RowWidthMismatch`, `ColumnValueMismatch`. `build()` and `sql()` panic on the same conditions.
 - **`Columns`** - `Star` for `*`, `Selected(Vec<&str>)` for specific columns
 - **`Op`** - Operators: `And`, `Or`, `Equals`, `O(&str)` for custom operators
 - **`Term`** - Expression terms: `Atom`, `Condition`, `Parens`, `Not`, `Subquery`, `Cast`, `Case`, `Coalesce`, `Any`, `All`, `Null`, and more

@@ -3057,3 +3057,149 @@ fn test_update_set_path_matches() {
         .unwrap();
     assert_eq!(update.sql(), "UPDATE t SET a = 1, b = 2");
 }
+
+// Tests for Update with no columns
+#[test]
+fn test_update_build_checked_no_columns() {
+    let ub = U("t");
+    assert_eq!(ub.build_checked().err(), Some(BuildError::NoColumns));
+}
+
+#[test]
+#[should_panic(expected = "no columns supplied")]
+fn test_update_build_panics_on_no_columns() {
+    U("t").build();
+}
+
+// Tests for Insert validation
+#[test]
+fn test_insert_build_checked_ok() {
+    let mut ib = I("t");
+    let insert = ib
+        .columns(vec!["a", "b"])
+        .values(vec!["1", "2"])
+        .build_checked()
+        .unwrap();
+    assert_eq!(insert.sql(), "INSERT INTO t (a, b) VALUES (1, 2)");
+}
+
+#[test]
+fn test_insert_build_checked_short_row() {
+    let mut ib = I("t");
+    let err = ib
+        .columns(vec!["a", "b"])
+        .values(vec!["1"])
+        .build_checked()
+        .err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 0,
+            columns: 2,
+            values: 1
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_long_row_in_later_row() {
+    let mut ib = I("t");
+    let err = ib
+        .columns(vec!["a"])
+        .rows(vec![vec!["1"], vec!["2", "3"]])
+        .build_checked()
+        .err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 1,
+            columns: 1,
+            values: 2
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_no_values() {
+    let mut ib = I("t");
+    let err = ib.columns(vec!["a"]).build_checked().err();
+    assert_eq!(
+        err,
+        Some(BuildError::RowWidthMismatch {
+            row: 0,
+            columns: 1,
+            values: 0
+        })
+    );
+}
+
+#[test]
+fn test_insert_build_checked_no_rows() {
+    let mut ib = I("t");
+    let err = ib.columns(vec!["a"]).rows(vec![]).build_checked().err();
+    assert_eq!(err, Some(BuildError::NoRows));
+}
+
+#[test]
+fn test_insert_build_checked_no_columns() {
+    let ib = I("t");
+    assert_eq!(ib.build_checked().err(), Some(BuildError::NoColumns));
+}
+
+#[test]
+fn test_insert_select_source_skips_width_check() {
+    let sub = Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Star, None)),
+        from: Some(FromSource::Table("s")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    };
+    let mut ib = I("t");
+    let insert = ib
+        .columns(vec!["a", "b"])
+        .select(sub)
+        .build_checked()
+        .unwrap();
+    assert_eq!(insert.sql(), "INSERT INTO t (a, b) SELECT * FROM s");
+}
+
+#[test]
+#[should_panic(expected = "row 0 has 1 values but 2 columns")]
+fn test_insert_build_panics_on_short_row() {
+    I("t").columns(vec!["a", "b"]).values(vec!["1"]).build();
+}
+
+#[test]
+#[should_panic(expected = "no rows supplied")]
+fn test_insert_sql_panics_on_direct_no_rows() {
+    Insert {
+        table: "t",
+        columns: vec!["a"],
+        source: InsertSource::Values(vec![]),
+        on_conflict: None,
+        returning: None,
+    }
+    .sql();
+}
+
+#[test]
+fn test_build_error_display_variants() {
+    assert_eq!(BuildError::NoColumns.to_string(), "no columns supplied");
+    assert_eq!(BuildError::NoRows.to_string(), "no rows supplied");
+    assert_eq!(
+        BuildError::RowWidthMismatch {
+            row: 2,
+            columns: 3,
+            values: 1
+        }
+        .to_string(),
+        "row 2 has 1 values but 3 columns were supplied"
+    );
+}
