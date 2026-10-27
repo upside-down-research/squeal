@@ -356,6 +356,8 @@ impl<'a> Sql for Op<'a> {
 pub enum Term<'a> {
     /// An atom is a single identifier.
     Atom(&'a str),
+    /// A pre-rendered SQL fragment owned by the term.
+    Owned(String),
     /// A condition is a combination of two terms and an operator.
     Condition(Box<Term<'a>>, Op<'a>, Box<Term<'a>>),
     /// A parenthesized term.
@@ -417,6 +419,7 @@ impl<'a> Sql for Term<'a> {
     fn sql(&self) -> String {
         match &self {
             Term::Atom(s) => s.to_string(),
+            Term::Owned(s) => s.clone(),
             Term::Condition(t1, op, t2) => {
                 // AND binds tighter than OR, so an OR operand of AND needs parens.
                 let operand_sql = |t: &Term<'a>| match (op, t) {
@@ -655,31 +658,25 @@ pub fn parens<'a>(term: Term<'a>) -> Term<'a> {
 /// Example: in_("status", vec!["'active'", "'pending'"]) => "status IN ('active', 'pending')"
 pub fn in_<'a>(column: &'a str, values: Vec<&'a str>) -> Term<'a> {
     let values_str = values.join(", ");
-    Term::Atom(Box::leak(
-        format!("{} IN ({})", column, values_str).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} IN ({})", column, values_str))
 }
 
 /// Creates a BETWEEN clause
 /// Example: between("age", "18", "65") => "age BETWEEN 18 AND 65"
 pub fn between<'a>(column: &'a str, low: &'a str, high: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(
-        format!("{} BETWEEN {} AND {}", column, low, high).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} BETWEEN {} AND {}", column, low, high))
 }
 
 /// Creates an IS NULL condition
 /// Example: is_null("deleted_at") => "deleted_at IS NULL"
 pub fn is_null<'a>(column: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(format!("{} IS NULL", column).into_boxed_str()))
+    Term::Owned(format!("{} IS NULL", column))
 }
 
 /// Creates an IS NOT NULL condition
 /// Example: is_not_null("created_at") => "created_at IS NOT NULL"
 pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(
-        format!("{} IS NOT NULL", column).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} IS NOT NULL", column))
 }
 
 // Nested query helpers
@@ -688,14 +685,14 @@ pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
 /// Example: exists(subquery) => "EXISTS (SELECT ...)"
 pub fn exists<'a>(subquery: Query<'a>) -> Term<'a> {
     let sql = format!("EXISTS ({})", subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates a NOT EXISTS condition with a subquery
 /// Example: not_exists(subquery) => "NOT EXISTS (SELECT ...)"
 pub fn not_exists<'a>(subquery: Query<'a>) -> Term<'a> {
     let sql = format!("NOT EXISTS ({})", subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates an IN condition with a subquery
@@ -712,14 +709,14 @@ pub fn in_subquery<'a>(column: &'a str, subquery: Query<'a>) -> Term<'a> {
 /// Example: any("price", Op::GreaterThan, subquery) => "price > ANY (SELECT ...)"
 pub fn any<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
     let sql = format!("{} {} ANY ({})", column, op.sql(), subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates a comparison with ALL (subquery)
 /// Example: all("price", Op::LessThan, subquery) => "price < ALL (SELECT ...)"
 pub fn all<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
     let sql = format!("{} {} ALL ({})", column, op.sql(), subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 // PostgreSQL parameter helpers
