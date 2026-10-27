@@ -1,5 +1,6 @@
 * Unreleased
 Add `.github/workflows/release.yml`: pushing a tag `vX.Y.Z` publishes the crate to crates.io (#35). Requires the repository secret `CARGO_REGISTRY_TOKEN`.
+Exclude Bazel, CI, and IDE files from the published crate. Bazel vendoring failed the `.cargo-checksum.json` check on `BUILD.bazel` (#33).
 Add `BuildError`, `Insert::validate`, `Update::validate`, `InsertBuilder::build_checked` and `UpdateBuilder::build_checked`.
 `Insert` and `Update` now reject empty columns, empty rows, and value counts that differ from the column count (#22, #23, #24).
 Behaviour change: `build()` and `sql()` on such input panic. Before, they rendered invalid SQL or silently truncated.

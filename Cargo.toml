@@ -1,7 +1,7 @@
 [package]
 name = "squeal"
 # Squeal is pre-release
-version = "0.1.2"
+version = "0.1.5"
 edition = "2024"
 description = "A SQL query builder library for Rust"
 license = "LGPL-3.0-or-later"
@@ -11,6 +11,22 @@ documentation = "https://docs.rs/squeal"
 authors= ["Upside Down Research"]
 rust-version = "1.90"
 categories = ["database"]
+exclude = [
+    ".bazelignore",
+    ".bazelrc",
+    ".bazelversion",
+    ".buildbuddy/",
+    ".config/",
+    ".github/",
+    ".gitlab-ci.yml",
+    ".idea/",
+    "BUILD.bazel",
+    "CLAUDE.md",
+    "MODULE.bazel",
+    "MODULE.bazel.lock",
+    "bzsh",
+    "tarpaulin.toml",
+]
 
 [features]
 postgres-docker = []
