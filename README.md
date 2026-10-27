@@ -40,7 +40,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-squeal = "0.1.1"
+squeal = "0.1.2"
 ```
 
 **MSRV**: Rust 1.90.0

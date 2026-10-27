@@ -2836,6 +2836,117 @@ fn test_order_by_sql_direct() {
     assert_eq!(sql, "ORDER BY name ASC, created_at DESC");
 }
 
+#[test]
+fn test_and_with_or_left_operand_parenthesised() {
+    let t = and(or(eq("a", "1"), eq("b", "2")), eq("c", "3"));
+    assert_eq!(t.sql(), "(a = 1 OR b = 2) AND c = 3");
+}
+
+#[test]
+fn test_and_with_or_right_operand_parenthesised() {
+    let t = and(eq("c", "3"), or(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "c = 3 AND (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_or_with_and_operand_unchanged() {
+    let t = or(and(eq("a", "1"), eq("b", "2")), eq("c", "3"));
+    assert_eq!(t.sql(), "a = 1 AND b = 2 OR c = 3");
+}
+
+#[test]
+fn test_not_or_parenthesised() {
+    let t = not(or(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "NOT (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_not_and_parenthesised() {
+    let t = not(and(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "NOT (a = 1 AND b = 2)");
+}
+
+#[test]
+fn test_not_atom_unchanged() {
+    assert_eq!(not(eq("a", "1")).sql(), "NOT a = 1");
+    assert_eq!(not(Term::Atom("x")).sql(), "NOT x");
+}
+
+#[test]
+fn test_already_parenthesised_not_double_wrapped() {
+    let t = and(
+        Term::Parens(Box::new(or(eq("a", "1"), eq("b", "2")))),
+        eq("c", "3"),
+    );
+    assert_eq!(t.sql(), "(a = 1 OR b = 2) AND c = 3");
+    let n = not(Term::Parens(Box::new(or(eq("a", "1"), eq("b", "2")))));
+    assert_eq!(n.sql(), "NOT (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_nested_and_unchanged() {
+    let t = and(
+        and(eq("a", "1"), eq("b", "2")),
+        and(eq("c", "3"), eq("d", "4")),
+    );
+    assert_eq!(t.sql(), "a = 1 AND b = 2 AND c = 3 AND d = 4");
+}
+
+// Helpers that pre-render SQL must own their output rather than leak it.
+fn sub<'a>() -> Query<'a> {
+    Query {
+        with_clause: None,
+        select: Some(Select::new(Columns::Selected(vec!["id"]), None)),
+        from: Some(FromSource::Table("t")),
+        joins: vec![],
+        where_clause: None,
+        group_by: None,
+        having: None,
+        order_by: None,
+        limit: None,
+        offset: None,
+        for_update: false,
+    }
+}
+
+#[test]
+fn test_rendering_helpers_sql() {
+    assert_eq!(
+        in_("status", vec!["'a'", "'b'"]).sql(),
+        "status IN ('a', 'b')"
+    );
+    assert_eq!(between("age", "18", "65").sql(), "age BETWEEN 18 AND 65");
+    assert_eq!(is_null("deleted_at").sql(), "deleted_at IS NULL");
+    assert_eq!(is_not_null("created_at").sql(), "created_at IS NOT NULL");
+    assert_eq!(exists(sub()).sql(), "EXISTS (SELECT id FROM t)");
+    assert_eq!(not_exists(sub()).sql(), "NOT EXISTS (SELECT id FROM t)");
+    assert_eq!(
+        any("price", Op::GreaterThan, sub()).sql(),
+        "price > ANY (SELECT id FROM t)"
+    );
+    assert_eq!(
+        all("price", Op::LessThan, sub()).sql(),
+        "price < ALL (SELECT id FROM t)"
+    );
+}
+
+#[test]
+fn test_rendering_helpers_return_owned_terms() {
+    let terms = vec![
+        in_("status", vec!["'a'"]),
+        between("age", "1", "2"),
+        is_null("a"),
+        is_not_null("a"),
+        exists(sub()),
+        not_exists(sub()),
+        any("p", Op::Equals, sub()),
+        all("p", Op::Equals, sub()),
+    ];
+    for t in terms {
+        assert!(matches!(t, Term::Owned(_)));
+    }
+}
+
 // Tests for Update column/value length validation
 #[test]
 fn test_update_build_checked_ok() {

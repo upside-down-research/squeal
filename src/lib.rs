@@ -383,6 +383,8 @@ impl<'a> Sql for Op<'a> {
 pub enum Term<'a> {
     /// An atom is a single identifier.
     Atom(&'a str),
+    /// A pre-rendered SQL fragment owned by the term.
+    Owned(String),
     /// A condition is a combination of two terms and an operator.
     Condition(Box<Term<'a>>, Op<'a>, Box<Term<'a>>),
     /// A parenthesized term.
@@ -406,6 +408,12 @@ pub enum Term<'a> {
     Interval(&'a str),
     DateAdd(Box<Term<'a>>, Box<Term<'a>>),
     DateSub(Box<Term<'a>>, Box<Term<'a>>),
+    /// PostgreSQL ANY() function for array comparisons
+    /// Example: column = ANY($1) where $1 is an array
+    Any(Box<Term<'a>>),
+    /// PostgreSQL ALL() function for array comparisons
+    /// Example: column <> ALL($1) for NOT IN equivalent
+    All(Box<Term<'a>>),
 }
 
 impl<'a> Sql for CaseExpression<'a> {
@@ -438,11 +446,23 @@ impl<'a> Sql for Term<'a> {
     fn sql(&self) -> String {
         match &self {
             Term::Atom(s) => s.to_string(),
-            Term::Condition(t1, op, t2) => format!("{} {} {}", t1.sql(), op.sql(), t2.sql()),
+            Term::Owned(s) => s.clone(),
+            Term::Condition(t1, op, t2) => {
+                // AND binds tighter than OR, so an OR operand of AND needs parens.
+                let operand_sql = |t: &Term<'a>| match (op, t) {
+                    (Op::And, Term::Condition(_, Op::Or, _)) => format!("({})", t.sql()),
+                    _ => t.sql(),
+                };
+                format!("{} {} {}", operand_sql(t1), op.sql(), operand_sql(t2))
+            }
             Term::Null => "".to_string(),
             Term::Parens(t) => format!("({})", t.sql()),
             Term::Subquery(q) => format!("({})", q.sql()),
-            Term::Not(t) => format!("NOT {}", t.sql()),
+            Term::Not(t) => match &**t {
+                // NOT binds tighter than AND/OR, so a logical operand needs parens.
+                Term::Condition(_, Op::And | Op::Or, _) => format!("NOT ({})", t.sql()),
+                _ => format!("NOT {}", t.sql()),
+            },
             Term::Cast(t, ty) => format!("CAST({} AS {})", t.sql(), ty),
             Term::PgCast(t, ty) => format!("{}::{}", t.sql(), ty),
             Term::Case(c) => c.sql(),
@@ -473,6 +493,8 @@ impl<'a> Sql for Term<'a> {
             Term::Interval(s) => format!("INTERVAL '{}'", s),
             Term::DateAdd(t1, t2) => format!("{} + {}", t1.sql(), t2.sql()),
             Term::DateSub(t1, t2) => format!("{} - {}", t1.sql(), t2.sql()),
+            Term::Any(t) => format!("ANY({})", t.sql()),
+            Term::All(t) => format!("ALL({})", t.sql()),
         }
     }
 }
@@ -539,6 +561,28 @@ pub fn like<'a>(left: &'a str, right: &'a str) -> Term<'a> {
         Box::new(Term::Atom(left)),
         Op::Like,
         Box::new(Term::Atom(right)),
+    )
+}
+
+/// Creates a condition for matching against a PostgreSQL array using ANY
+/// Example: `eq_any("id", "$1")` generates `id = ANY($1)`
+/// This is equivalent to `id IN (...)` but works with array parameters
+pub fn eq_any<'a>(column: &'a str, array_param: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(column)),
+        Op::Equals,
+        Box::new(Term::Any(Box::new(Term::Atom(array_param)))),
+    )
+}
+
+/// Creates a condition for NOT matching against a PostgreSQL array using ALL
+/// Example: `ne_all("id", "$1")` generates `id != ALL($1)`
+/// This is equivalent to `id NOT IN (...)` but works with array parameters
+pub fn ne_all<'a>(column: &'a str, array_param: &'a str) -> Term<'a> {
+    Term::Condition(
+        Box::new(Term::Atom(column)),
+        Op::NotEquals,
+        Box::new(Term::All(Box::new(Term::Atom(array_param)))),
     )
 }
 
@@ -641,31 +685,25 @@ pub fn parens<'a>(term: Term<'a>) -> Term<'a> {
 /// Example: in_("status", vec!["'active'", "'pending'"]) => "status IN ('active', 'pending')"
 pub fn in_<'a>(column: &'a str, values: Vec<&'a str>) -> Term<'a> {
     let values_str = values.join(", ");
-    Term::Atom(Box::leak(
-        format!("{} IN ({})", column, values_str).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} IN ({})", column, values_str))
 }
 
 /// Creates a BETWEEN clause
 /// Example: between("age", "18", "65") => "age BETWEEN 18 AND 65"
 pub fn between<'a>(column: &'a str, low: &'a str, high: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(
-        format!("{} BETWEEN {} AND {}", column, low, high).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} BETWEEN {} AND {}", column, low, high))
 }
 
 /// Creates an IS NULL condition
 /// Example: is_null("deleted_at") => "deleted_at IS NULL"
 pub fn is_null<'a>(column: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(format!("{} IS NULL", column).into_boxed_str()))
+    Term::Owned(format!("{} IS NULL", column))
 }
 
 /// Creates an IS NOT NULL condition
 /// Example: is_not_null("created_at") => "created_at IS NOT NULL"
 pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
-    Term::Atom(Box::leak(
-        format!("{} IS NOT NULL", column).into_boxed_str(),
-    ))
+    Term::Owned(format!("{} IS NOT NULL", column))
 }
 
 // Nested query helpers
@@ -674,14 +712,14 @@ pub fn is_not_null<'a>(column: &'a str) -> Term<'a> {
 /// Example: exists(subquery) => "EXISTS (SELECT ...)"
 pub fn exists<'a>(subquery: Query<'a>) -> Term<'a> {
     let sql = format!("EXISTS ({})", subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates a NOT EXISTS condition with a subquery
 /// Example: not_exists(subquery) => "NOT EXISTS (SELECT ...)"
 pub fn not_exists<'a>(subquery: Query<'a>) -> Term<'a> {
     let sql = format!("NOT EXISTS ({})", subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates an IN condition with a subquery
@@ -698,14 +736,14 @@ pub fn in_subquery<'a>(column: &'a str, subquery: Query<'a>) -> Term<'a> {
 /// Example: any("price", Op::GreaterThan, subquery) => "price > ANY (SELECT ...)"
 pub fn any<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
     let sql = format!("{} {} ANY ({})", column, op.sql(), subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 /// Creates a comparison with ALL (subquery)
 /// Example: all("price", Op::LessThan, subquery) => "price < ALL (SELECT ...)"
 pub fn all<'a>(column: &'a str, op: Op<'a>, subquery: Query<'a>) -> Term<'a> {
     let sql = format!("{} {} ALL ({})", column, op.sql(), subquery.sql());
-    Term::Atom(Box::leak(sql.into_boxed_str()))
+    Term::Owned(sql)
 }
 
 // PostgreSQL parameter helpers
@@ -1509,5 +1547,119 @@ impl<'a> Sql for Query<'a> {
             result.push_str(" FOR UPDATE");
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_eq_any_generates_correct_sql() {
+        let term = eq_any("id", "$1");
+        assert_eq!(term.sql(), "id = ANY($1)");
+    }
+
+    #[test]
+    fn test_ne_all_generates_correct_sql() {
+        let term = ne_all("id", "$1");
+        assert_eq!(term.sql(), "id != ALL($1)");
+    }
+
+    #[test]
+    fn test_eq_any_in_select_query() {
+        let mut qb = Q();
+        let query = qb
+            .select(vec!["*"])
+            .from("users")
+            .where_(eq_any("id", "$1"))
+            .build();
+        assert_eq!(query.sql(), "SELECT * FROM users WHERE id = ANY($1)");
+    }
+
+    #[test]
+    fn test_eq_any_combined_with_and() {
+        let mut qb = Q();
+        let query = qb
+            .select(vec!["*"])
+            .from("domains")
+            .where_(and(
+                eq("tenant", "$1"),
+                and(eq("active", "true"), eq_any("id", "$2")),
+            ))
+            .build();
+        assert_eq!(
+            query.sql(),
+            "SELECT * FROM domains WHERE tenant = $1 AND active = true AND id = ANY($2)"
+        );
+    }
+
+    #[test]
+    fn test_delete_with_in_subquery() {
+        let mut subq = Q();
+        let subquery = subq
+            .select(vec!["id"])
+            .from("policies")
+            .where_(eq("domain", "$1"))
+            .build();
+
+        let mut db = D("policy_statements");
+        let delete = db.where_(in_subquery("policy", subquery)).build();
+        assert_eq!(
+            delete.sql(),
+            "DELETE FROM policy_statements WHERE policy IN (SELECT id FROM policies WHERE domain = $1)"
+        );
+    }
+
+    #[test]
+    fn test_insert_with_returning() {
+        let mut ib = I("users");
+        let insert = ib
+            .columns(vec!["name", "email"])
+            .values(vec!["$1", "$2"])
+            .returning(Columns::Selected(vec!["id"]))
+            .build();
+        assert_eq!(
+            insert.sql(),
+            "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id"
+        );
+    }
+
+    #[test]
+    fn test_insert_with_returning_star() {
+        let mut ib = I("users");
+        let insert = ib
+            .columns(vec!["name"])
+            .values(vec!["$1"])
+            .returning(Columns::Star)
+            .build();
+        assert_eq!(
+            insert.sql(),
+            "INSERT INTO users (name) VALUES ($1) RETURNING *"
+        );
+    }
+
+    #[test]
+    fn test_update_with_returning() {
+        let mut ub = U("users");
+        let update = ub
+            .set(vec![("name", "$1")])
+            .where_(eq("id", "$2"))
+            .returning(Columns::Selected(vec!["id", "name", "updated_at"]))
+            .build();
+        assert_eq!(
+            update.sql(),
+            "UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name, updated_at"
+        );
+    }
+
+    #[test]
+    fn test_delete_with_returning() {
+        let mut db = D("users");
+        let delete = db
+            .where_(eq("id", "$1"))
+            .returning(Columns::Selected(vec!["id"]))
+            .build();
+        assert_eq!(delete.sql(), "DELETE FROM users WHERE id = $1 RETURNING id");
     }
 }
