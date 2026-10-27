@@ -11,6 +11,22 @@ documentation = "https://docs.rs/squeal"
 authors= ["Upside Down Research"]
 rust-version = "1.90"
 categories = ["database"]
+exclude = [
+    ".bazelignore",
+    ".bazelrc",
+    ".bazelversion",
+    ".buildbuddy/",
+    ".config/",
+    ".github/",
+    ".gitlab-ci.yml",
+    ".idea/",
+    "BUILD.bazel",
+    "CLAUDE.md",
+    "MODULE.bazel",
+    "MODULE.bazel.lock",
+    "bzsh",
+    "tarpaulin.toml",
+]
 
 [features]
 postgres-docker = []
