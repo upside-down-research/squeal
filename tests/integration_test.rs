@@ -2835,3 +2835,59 @@ fn test_order_by_sql_direct() {
     let sql = order_by.sql();
     assert_eq!(sql, "ORDER BY name ASC, created_at DESC");
 }
+
+#[test]
+fn test_and_with_or_left_operand_parenthesised() {
+    let t = and(or(eq("a", "1"), eq("b", "2")), eq("c", "3"));
+    assert_eq!(t.sql(), "(a = 1 OR b = 2) AND c = 3");
+}
+
+#[test]
+fn test_and_with_or_right_operand_parenthesised() {
+    let t = and(eq("c", "3"), or(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "c = 3 AND (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_or_with_and_operand_unchanged() {
+    let t = or(and(eq("a", "1"), eq("b", "2")), eq("c", "3"));
+    assert_eq!(t.sql(), "a = 1 AND b = 2 OR c = 3");
+}
+
+#[test]
+fn test_not_or_parenthesised() {
+    let t = not(or(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "NOT (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_not_and_parenthesised() {
+    let t = not(and(eq("a", "1"), eq("b", "2")));
+    assert_eq!(t.sql(), "NOT (a = 1 AND b = 2)");
+}
+
+#[test]
+fn test_not_atom_unchanged() {
+    assert_eq!(not(eq("a", "1")).sql(), "NOT a = 1");
+    assert_eq!(not(Term::Atom("x")).sql(), "NOT x");
+}
+
+#[test]
+fn test_already_parenthesised_not_double_wrapped() {
+    let t = and(
+        Term::Parens(Box::new(or(eq("a", "1"), eq("b", "2")))),
+        eq("c", "3"),
+    );
+    assert_eq!(t.sql(), "(a = 1 OR b = 2) AND c = 3");
+    let n = not(Term::Parens(Box::new(or(eq("a", "1"), eq("b", "2")))));
+    assert_eq!(n.sql(), "NOT (a = 1 OR b = 2)");
+}
+
+#[test]
+fn test_nested_and_unchanged() {
+    let t = and(
+        and(eq("a", "1"), eq("b", "2")),
+        and(eq("c", "3"), eq("d", "4")),
+    );
+    assert_eq!(t.sql(), "a = 1 AND b = 2 AND c = 3 AND d = 4");
+}
