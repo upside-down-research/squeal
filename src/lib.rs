@@ -417,11 +417,22 @@ impl<'a> Sql for Term<'a> {
     fn sql(&self) -> String {
         match &self {
             Term::Atom(s) => s.to_string(),
-            Term::Condition(t1, op, t2) => format!("{} {} {}", t1.sql(), op.sql(), t2.sql()),
+            Term::Condition(t1, op, t2) => {
+                // AND binds tighter than OR, so an OR operand of AND needs parens.
+                let operand_sql = |t: &Term<'a>| match (op, t) {
+                    (Op::And, Term::Condition(_, Op::Or, _)) => format!("({})", t.sql()),
+                    _ => t.sql(),
+                };
+                format!("{} {} {}", operand_sql(t1), op.sql(), operand_sql(t2))
+            }
             Term::Null => "".to_string(),
             Term::Parens(t) => format!("({})", t.sql()),
             Term::Subquery(q) => format!("({})", q.sql()),
-            Term::Not(t) => format!("NOT {}", t.sql()),
+            Term::Not(t) => match &**t {
+                // NOT binds tighter than AND/OR, so a logical operand needs parens.
+                Term::Condition(_, Op::And | Op::Or, _) => format!("NOT ({})", t.sql()),
+                _ => format!("NOT {}", t.sql()),
+            },
             Term::Cast(t, ty) => format!("CAST({} AS {})", t.sql(), ty),
             Term::PgCast(t, ty) => format!("{}::{}", t.sql(), ty),
             Term::Case(c) => c.sql(),
