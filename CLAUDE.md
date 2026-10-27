@@ -9,6 +9,25 @@
 - **License**: LGPL 3.0 or later
 - **Repository**: https://gitlab.com/upside-down-research/oss/squeal
 
+## Working Agreement
+
+Goal: define the change, then ship it. Delay is a cost; unshipped work has no value.
+
+- Write a short definition (a few lines: what, why, done-when). Do not write a specification document.
+- Make the change the task requires. Do not minimise the diff for its own sake; refactor what the change touches when it is cheaper than working around it.
+- Do not wait for approval. Commit, push, and open the PR. Ask only when blocked by a red line or by an ambiguity that changes the outcome.
+- Gate unfinished or risky behaviour behind a feature flag (Cargo feature) and ship it dark. Prefer a flag to a long-lived branch.
+- Fix forward. A defect that crosses no red line is repaired in the next change, not prevented by additional process.
+- Report outcomes plainly: what shipped, what failed, what was skipped.
+
+### Red lines (stop and ask)
+
+1. **Data destruction.** No change may, by default, emit SQL that deletes or overwrites data unintentionally: unscoped `DELETE`/`UPDATE`, `DROP`, `TRUNCATE`. Destructive output must be explicit at the call site. Never run destructive statements against a database that is not a disposable test container.
+2. **Customer destruction.** No breaking change to the public API, no changed SQL output for existing valid constructions, no licence change, no leaked secrets, without an explicit decision and a version bump. Downstream users must continue to build and get the same SQL.
+3. **Failure to operate.** Do not merge or push code that fails `cargo build`, `cargo test`, or `cargo clippy --all-targets`. Do not ship construction paths that emit syntactically invalid SQL.
+
+Everything else is the author's call.
+
 ## Project Structure
 
 ```
@@ -43,9 +62,9 @@ cargo test
 cargo test --features postgres-docker
 ```
 
-### Linting (REQUIRED)
+### Linting (red line: failure to operate)
 ```bash
-# Run clippy - ALL warnings must be addressed before committing
+# Run clippy - warnings must be clean before pushing
 cargo clippy
 
 # Auto-fix clippy warnings where possible
@@ -64,16 +83,17 @@ cargo doc --open
 
 ## Code Quality Requirements
 
-### MANDATORY: High Test Coverage
-- Every new feature MUST include corresponding unit tests
-- Complex functionality should have integration tests
+### Tests
+- New behaviour ships with a unit test of its SQL output; it is the cheapest proof the code works
+- Add integration tests where a real PostgreSQL round trip is the only meaningful check
+- Do not add tests for their own sake or to meet a coverage figure
 - Tests are located in:
   - `src/lib.rs` (inline `#[cfg(test)]` module for unit tests)
   - `tests/integration_test.rs` (integration and Docker tests)
 
-### MANDATORY: Clippy Clean
-- Run `cargo clippy` before every commit
-- ALL clippy warnings must be fixed
+### Clippy Clean
+- Run `cargo clippy --all-targets` before pushing
+- Fix all clippy warnings
 - Use `cargo clippy --fix` for auto-fixable issues
 - Common issues to watch for:
   - `useless_format` - Use `.to_string()` instead of `format!("{}", x)`
